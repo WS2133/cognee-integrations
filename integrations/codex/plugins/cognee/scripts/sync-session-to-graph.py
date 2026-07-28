@@ -30,17 +30,17 @@ from _plugin_common import (
     resolve_session_key_from_payload,
     resolve_user,
     resolved_http_endpoint_auth,
-    run_session_improve,
+    run_session_distill,
     set_session_key,
     sync_lock,
     unregister_agent_via_http,
 )
 from config import (
+    distill_session_local,
     ensure_cognee_ready,
     ensure_dataset_ready,
     get_dataset,
     get_session_id,
-    improve_session_local,
     load_config,
 )
 
@@ -279,7 +279,7 @@ async def _sync(stop_watcher: bool, unregister_on_finish: bool = False, strict: 
             incomplete: list[str] = []
             if api_mode:
                 for sid in target_sessions:
-                    wrote = run_session_improve(dataset, sid)
+                    wrote = run_session_distill(dataset, sid)
                     if not wrote:
                         incomplete.append(sid)
                     hook_log(
@@ -287,13 +287,13 @@ async def _sync(stop_watcher: bool, unregister_on_finish: bool = False, strict: 
                         {
                             "session": sid,
                             "dataset": dataset,
-                            "via": "http_improve",
+                            "via": "http_distill",
                             "wrote": wrote,
                         },
                     )
                     print(
                         f"cognee-sync: dataset={dataset} session={sid} "
-                        f"via=http_improve wrote={wrote}",
+                        f"via=http_distill wrote={wrote}",
                         file=sys.stderr,
                     )
                 if strict and incomplete:
@@ -310,7 +310,7 @@ async def _sync(stop_watcher: bool, unregister_on_finish: bool = False, strict: 
             user = await resolve_user(user_id)
             await ensure_dataset_ready(dataset, user)
             for sid in target_sessions:
-                result = await improve_session_local(dataset, sid, user)
+                result = await distill_session_local(dataset, sid, user)
                 if not result.get("ok"):
                     incomplete.append(sid)
                 hook_log(
@@ -319,13 +319,13 @@ async def _sync(stop_watcher: bool, unregister_on_finish: bool = False, strict: 
                         "session": sid,
                         "dataset": dataset,
                         "user_id": str(getattr(user, "id", "")),
-                        "via": "local_improve",
+                        "via": "local_distill",
                         "ok": bool(result.get("ok")),
                     },
                 )
                 print(
                     f"cognee-sync: dataset={dataset} session={sid} "
-                    f"via=local_improve ok={result.get('ok')}",
+                    f"via=local_distill ok={result.get('ok')}",
                     file=sys.stderr,
                 )
             if strict and incomplete:

@@ -1,14 +1,4 @@
-"""Unit tests for the codex session->graph improve bridge
-(_plugin_common.improve_session_via_http and run_session_improve).
-
-Mirrors the claude-code suite, minus status polling (the codex helper is
-submit-only): the sync POSTs /api/v1/improve with {dataset_name, session_ids,
-run_in_background}; a 2xx submit counts as success; 404/405/422 marks the
-server improve-unsupported and falls back to the legacy document bridge;
-warmup entries drain before improve.
-
-Run: python integrations/codex/tests/test_improve_sync.py (or via pytest).
-"""
+"""Contract tests for the selective session-distillation bridge."""
 
 import json
 import pathlib
@@ -24,14 +14,15 @@ import _plugin_common as pc  # noqa: E402
 
 
 class _Resp:
-    def __init__(self, body=b"{}", status=200):
+    status = 200
+
+    def __init__(self, body=b"{}"):
         self._body = body
-        self.status = status
 
     def __enter__(self):
         return self
 
-    def __exit__(self, *a):
+    def __exit__(self, *args):
         return False
 
     def read(self):
@@ -39,263 +30,103 @@ class _Resp:
 
 
 def _with_seams(**overrides):
-    saved = {k: getattr(pc, k) for k in overrides}
-    for k, v in overrides.items():
-        setattr(pc, k, v)
+    saved = {key: getattr(pc, key) for key in overrides}
+    for key, value in overrides.items():
+        setattr(pc, key, value)
     return saved
 
 
 def _restore(saved):
-    for k, v in saved.items():
-        setattr(pc, k, v)
+    for key, value in saved.items():
+        setattr(pc, key, value)
 
 
-def test_improve_posts_expected_json_payload():
+def test_distill_posts_only_dataset_and_session():
     captured = {}
-    orig = urllib.request.urlopen
+    original = urllib.request.urlopen
 
-    def _fake(req, timeout=None):
-        captured["req"] = req
+    def _fake(request, timeout=None, context=None):
+        captured["request"] = request
         captured["timeout"] = timeout
-        return _Resp(b'{"status":"running"}')
+        return _Resp(b'{"status":"completed","documents":[]}')
 
     urllib.request.urlopen = _fake
     saved = _with_seams(_local_api_url=lambda: "http://x", _api_key=lambda: "k")
     try:
-        res = pc.improve_session_via_http("ds", "sid")
+        result = pc.distill_session_via_http("project-context", "session-1")
     finally:
         _restore(saved)
-        urllib.request.urlopen = orig
+        urllib.request.urlopen = original
 
-    assert res["ok"] is True
-    assert captured["req"].full_url.endswith("/api/v1/improve")
-    body = json.loads(captured["req"].data.decode("utf-8"))
-    assert body == {"dataset_name": "ds", "session_ids": ["sid"], "run_in_background": True}
-    # Distillation/agent-context run inside the request even in background
-    # mode, so the submit timeout must be generous (default 180s).
+    request = captured["request"]
+    assert result["ok"] is True
+    assert request.full_url == "http://x/api/v1/improve/distill"
+    assert json.loads(request.data) == {
+        "dataset_name": "project-context",
+        "session_id": "session-1",
+    }
+    assert request.get_header("X-api-key") == "k"
     assert captured["timeout"] >= 60
 
 
-def test_improve_404_marks_unsupported():
-    marker_writes = {}
-    orig = urllib.request.urlopen
+def test_distill_network_error_is_graceful():
+    original = urllib.request.urlopen
 
-    def _raise(req, timeout=None):
-        raise urllib.error.HTTPError("http://x", 404, "Not Found", {}, None)
-
-    urllib.request.urlopen = _raise
-    saved = _with_seams(
-        _local_api_url=lambda: "http://x",
-        _api_key=lambda: "k",
-        _write_json_file=lambda p, data: marker_writes.update({str(p): data}),
-    )
-    try:
-        res = pc.improve_session_via_http("ds", "sid")
-    finally:
-        _restore(saved)
-        urllib.request.urlopen = orig
-
-    assert res["ok"] is False
-    assert res["unsupported"] is True
-    assert any("improve-unsupported" in p for p in marker_writes)
-
-
-def test_improve_network_error_is_graceful():
-    orig = urllib.request.urlopen
-
-    def _raise(req, timeout=None):
+    def _raise(request, timeout=None, context=None):
         raise urllib.error.URLError("connection refused")
 
     urllib.request.urlopen = _raise
     saved = _with_seams(_local_api_url=lambda: "http://x", _api_key=lambda: "k")
     try:
-        res = pc.improve_session_via_http("ds", "sid")
+        result = pc.distill_session_via_http("ds", "sid")
     finally:
         _restore(saved)
-        urllib.request.urlopen = orig
+        urllib.request.urlopen = original
 
-    assert res["ok"] is False
-    assert res["status"] == 0
-    assert "error" in res
+    assert result["ok"] is False
+    assert result["status"] == 0
 
 
-def _run_session_improve(improve_result, *, unsupported_marker=False, drain_results=None):
-    """Drive run_session_improve with all seams mocked; return (result, calls).
+def _run_distill(*, drain_results=None, response=None):
+    calls = {"drain": 0, "distill": 0}
 
-    ``drain_results`` is an optional list of (drained, remaining) tuples returned
-    per drain call, defaulting to a clean (0, 0).
-    """
-    calls = {"drain": 0, "improve": 0, "legacy": 0}
-
-    def _drain(d, s):
+    def _drain(dataset, session):
         calls["drain"] += 1
-        if drain_results:
-            return drain_results[min(calls["drain"] - 1, len(drain_results) - 1)]
-        return (0, 0)
+        results = drain_results or [(0, 0)]
+        return results[min(calls["drain"] - 1, len(results) - 1)]
 
     saved = _with_seams(
         _local_api_url=lambda: "http://x",
         _backend_reachable=lambda url: True,
         drain_warmup_entries=_drain,
-        ensure_dataset_via_http=lambda d: None,
-        improve_unsupported=lambda url: unsupported_marker,
-        improve_session_via_http=lambda d, s, **k: (
-            calls.__setitem__("improve", calls["improve"] + 1) or improve_result
+        ensure_dataset_via_http=lambda dataset: None,
+        distill_session_via_http=lambda dataset, session, **kwargs: (
+            calls.__setitem__("distill", calls["distill"] + 1)
+            or (response or {"ok": True})
         ),
-        persist_session_cache_to_graph_via_http=lambda d, s: (
-            calls.__setitem__("legacy", calls["legacy"] + 1) or True
-        ),
-        hook_log=lambda *a, **k: None,
+        hook_log=lambda *args, **kwargs: None,
         _DRAIN_RETRY_PAUSE_SECONDS=0.0,
     )
     try:
-        wrote = pc.run_session_improve("ds", "sid")
+        result = pc.run_session_distill("ds", "sid")
     finally:
         _restore(saved)
-    return wrote, calls
+    return result, calls
 
 
-def test_run_session_improve_happy_path_drains_then_improves():
-    wrote, calls = _run_session_improve({"ok": True})
-    assert wrote is True
-    assert calls == {"drain": 1, "improve": 1, "legacy": 0}
+def test_run_session_distill_drains_then_distills():
+    result, calls = _run_distill()
+    assert result is True
+    assert calls == {"drain": 1, "distill": 1}
 
 
-def test_run_session_improve_falls_back_when_unsupported_response():
-    wrote, calls = _run_session_improve({"ok": False, "unsupported": True, "status": 404})
-    assert wrote is True
-    assert calls["improve"] == 1
-    assert calls["legacy"] == 1
+def test_incomplete_drain_distills_but_reports_false_for_retry():
+    result, calls = _run_distill(drain_results=[(0, 2), (0, 2)])
+    assert result is False
+    assert calls == {"drain": 2, "distill": 1}
 
 
-def test_run_session_improve_skips_improve_when_marker_set():
-    wrote, calls = _run_session_improve({"ok": True}, unsupported_marker=True)
-    assert wrote is True
-    assert calls["improve"] == 0  # marker short-circuits straight to legacy
-    assert calls["legacy"] == 1
-
-
-def test_run_session_improve_error_returns_false_without_legacy():
-    wrote, calls = _run_session_improve({"ok": False, "status": 500, "error": "boom"})
-    assert wrote is False
-    assert calls["legacy"] == 0  # a transient server error is not an unsupported server
-
-
-def test_improve_lock_skip_reports_busy():
-    # improve() returns {} when the per-session lock skips the run — the helper
-    # must surface that as busy, never as success.
-    orig = urllib.request.urlopen
-
-    def _fake(req, timeout=None):
-        return _Resp(b"{}")
-
-    urllib.request.urlopen = _fake
-    saved = _with_seams(_local_api_url=lambda: "http://x", _api_key=lambda: "k")
-    try:
-        res = pc.improve_session_via_http("ds", "sid")
-    finally:
-        _restore(saved)
-        urllib.request.urlopen = orig
-
-    assert res["ok"] is False
-    assert res["busy"] is True
-
-
-def test_run_session_improve_retries_busy_until_lock_frees():
-    # A lock-skipped improve may have snapshotted the cache before the latest
-    # turns — run_session_improve must re-submit until a run actually lands.
-    import os
-
-    results = [{"ok": False, "busy": True}, {"ok": False, "busy": True}, {"ok": True}]
-    calls = {"improve": 0}
-
-    def _improve(d, s, **k):
-        calls["improve"] += 1
-        return results[min(calls["improve"] - 1, len(results) - 1)]
-
-    os.environ["COGNEE_IMPROVE_BUSY_RETRY_INTERVAL"] = "0.1"
-    saved = _with_seams(
-        _local_api_url=lambda: "http://x",
-        _backend_reachable=lambda url: True,
-        drain_warmup_entries=lambda d, s: (0, 0),
-        improve_unsupported=lambda url: False,
-        improve_session_via_http=_improve,
-        hook_log=lambda *a, **k: None,
-    )
-    try:
-        wrote = pc.run_session_improve("ds", "sid")
-    finally:
-        _restore(saved)
-        os.environ.pop("COGNEE_IMPROVE_BUSY_RETRY_INTERVAL", None)
-
-    assert wrote is True
-    assert calls["improve"] == 3
-
-
-def test_incomplete_drain_returns_false_but_improve_still_runs():
-    # Undelivered warmup entries mean the improve persisted an incomplete
-    # session: the improve must still run (partial persist beats none), but the
-    # sync must report failure so the caller's retry loop re-drives it.
-    wrote, calls = _run_session_improve({"ok": True}, drain_results=[(0, 3), (0, 3)])
-    assert wrote is False
-    assert calls["improve"] == 1  # improve ran despite the incomplete drain
-    assert calls["drain"] == 2  # one in-place retry happened
-    assert calls["legacy"] == 0
-
-
-def test_drain_retry_recovers_and_sync_succeeds():
-    # First drain fails on a blip, the in-place retry delivers the tail →
-    # the sync is complete and reports success.
-    wrote, calls = _run_session_improve({"ok": True}, drain_results=[(0, 3), (3, 0)])
-    assert wrote is True
-    assert calls["drain"] == 2
-    assert calls["improve"] == 1
-
-
-def test_clean_drain_skips_retry():
-    wrote, calls = _run_session_improve({"ok": True}, drain_results=[(2, 0)])
-    assert wrote is True
-    assert calls["drain"] == 1  # nothing remaining → no retry
-
-
-def test_run_session_improve_busy_deadline_gives_up():
-    import os
-
-    calls = {"improve": 0}
-
-    def _always_busy(d, s, **k):
-        calls["improve"] += 1
-        return {"ok": False, "busy": True}
-
-    os.environ["COGNEE_IMPROVE_BUSY_RETRY_INTERVAL"] = "0.1"
-    os.environ["COGNEE_IMPROVE_BUSY_DEADLINE"] = "0.25"
-    saved = _with_seams(
-        _local_api_url=lambda: "http://x",
-        _backend_reachable=lambda url: True,
-        drain_warmup_entries=lambda d, s: (0, 0),
-        improve_unsupported=lambda url: False,
-        improve_session_via_http=_always_busy,
-        hook_log=lambda *a, **k: None,
-    )
-    try:
-        wrote = pc.run_session_improve("ds", "sid")
-    finally:
-        _restore(saved)
-        os.environ.pop("COGNEE_IMPROVE_BUSY_RETRY_INTERVAL", None)
-        os.environ.pop("COGNEE_IMPROVE_BUSY_DEADLINE", None)
-
-    assert wrote is False  # still busy at deadline → reported as not-synced
-    assert calls["improve"] >= 2  # at least one retry happened
-
-
-if __name__ == "__main__":
-    failures = 0
-    for _name, _fn in sorted(globals().items()):
-        if _name.startswith("test_") and callable(_fn):
-            try:
-                _fn()
-                print("PASS", _name)
-            except AssertionError as exc:
-                failures += 1
-                print("FAIL", _name, exc)
-    sys.exit(1 if failures else 0)
+def test_distill_failure_returns_false():
+    result, calls = _run_distill(response={"ok": False, "status": 500})
+    assert result is False
+    assert calls["distill"] == 1

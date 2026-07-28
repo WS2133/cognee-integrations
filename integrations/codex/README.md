@@ -3,9 +3,10 @@
 Adds persistent Cognee memory to Codex CLI.
 
 The integration:
-- captures prompts, tool traces, and assistant responses into session memory
-- injects relevant context on prompt submit
-- syncs session memory into graph memory on session end/final exit
+- captures paired user prompts and final assistant responses into session memory
+- redacts common secret shapes and never captures tool traces
+- distills only durable decisions, constraints, corrections, outcomes, preferences, and open questions
+- keeps graph recall on demand instead of injecting it on every prompt
 
 ## Install
 
@@ -131,27 +132,22 @@ Data added outside of Claude to the dataset (via SDK or the server for example) 
 | Hook | Behavior |
 |---|---|
 | `SessionStart` | mode select, identity setup, dataset readiness, watcher bootstrap |
-| `UserPromptSubmit` | context lookup + async prompt staging |
-| `PostToolUse` | async trace write |
+| `UserPromptSubmit` | prompt staging |
 | `Stop` | assistant answer write |
-| `PreCompact` | memory anchor build before compaction |
-| `SessionEnd` | trigger detached final sync worker |
+| `PreCompact` | bounded recent Q&A anchor before compaction |
+| `SessionEnd` | trigger detached final distillation worker |
 
 ## Session sync and watchers
 
-Session→graph sync runs through Cognee's session-aware `improve` endpoint: the server bridges the session from its own session cache (feedback weights, Q&A persist, compact trace-feedback persist, distillation, enrichment) instead of the plugin re-posting the full accumulated session text — which used to trigger a complete re-cognify of the whole transcript on every sync. Servers without session-aware improve automatically fall back to the legacy document bridge.
+Session distillation uses `POST /api/v1/improve/distill`. Raw Q&A remains in the session cache; only accepted durable memories are written to the graph.
 
-An idle watcher runs in the background for the lifetime of each launch. It polls activity every `COGNEE_IDLE_POLL` seconds and fires an improve when the session has been quiet for `COGNEE_IDLE_THRESHOLD` seconds, then waits at least `COGNEE_IMPROVE_COOLDOWN` seconds before the next run. An automatic improve also fires every `COGNEE_AUTO_IMPROVE_EVERY` stored tool calls/stops.
+An idle watcher distills newly captured Q&A after the session has been quiet for `COGNEE_IDLE_THRESHOLD` seconds. Session end runs one final distillation.
 
 | Env var | Default | Effect |
 |---|---|---|
 | `COGNEE_IDLE_POLL` | `10` | Poll interval in seconds |
 | `COGNEE_IDLE_THRESHOLD` | `60` | Seconds of inactivity before idle improve fires |
 | `COGNEE_IMPROVE_COOLDOWN` | `600` | Minimum seconds between idle improve runs |
-| `COGNEE_AUTO_IMPROVE_EVERY` | `150` | Stored tool calls/stops between automatic improves (0 disables) |
-| `COGNEE_IMPROVE_SUBMIT_TIMEOUT` | `180` | Read timeout for the improve POST (distillation runs inside the request) |
-| `COGNEE_IMPROVE_BUSY_DEADLINE` | `600` | How long to wait for a concurrent improve's session lock before giving up |
-| `COGNEE_IMPROVE_BUSY_RETRY_INTERVAL` | `15` | Seconds between re-submits while the session lock is held |
 
 Final sync on session end is triggered by the `SessionEnd` detached worker, with an exit watcher as fallback if the process exits without firing `SessionEnd`.
 
@@ -279,10 +275,8 @@ Config precedence:
 | local URL override | `COGNEE_LOCAL_API_URL` | `http://localhost:8011` | Local API base URL |
 | local LLM | `LLM_API_KEY`, `LLM_MODEL` | unset | Required for local mode runtime |
 | idle watcher poll | `COGNEE_IDLE_POLL` | `10` | Idle watcher poll interval in seconds |
-| idle watcher threshold | `COGNEE_IDLE_THRESHOLD` | `60` | Seconds of inactivity before idle improve fires |
-| idle watcher cooldown | `COGNEE_IMPROVE_COOLDOWN` | `600` | Minimum seconds between idle improve runs |
-| auto-improve threshold | `COGNEE_AUTO_IMPROVE_EVERY` | `150` | Stored tool calls/stops between automatic improves (0 disables) |
-| improve submit timeout | `COGNEE_IMPROVE_SUBMIT_TIMEOUT` | `180` | Read timeout for the improve POST |
+| idle watcher threshold | `COGNEE_IDLE_THRESHOLD` | `60` | Seconds of inactivity before idle distillation |
+| idle watcher cooldown | `COGNEE_IMPROVE_COOLDOWN` | `600` | Minimum seconds between idle distillations |
 
 ## Troubleshooting
 

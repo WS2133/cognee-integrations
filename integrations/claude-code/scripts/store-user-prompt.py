@@ -12,6 +12,7 @@ Configuration:
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 # Add scripts dir to path for helper imports
 sys.path.insert(0, os.path.dirname(__file__))
 from _plugin_common import (
+    _redact_secrets,
     bump_save_counter,
     get_session_key,
     hook_log,
@@ -116,13 +118,9 @@ def _ensure_idle_watcher(session_id: str, dataset: str, user_id: str, config: di
 
 
 def _prompt_context(payload: dict) -> str:
-    context = {
-        "cwd": payload.get("cwd"),
-        "model": payload.get("model"),
-        "turn_id": payload.get("turn_id"),
-        "transcript_path": payload.get("transcript_path"),
-    }
-    return json.dumps({k: v for k, v in context.items() if v}, default=str)
+    name = re.split(r"[\\/]", str(payload.get("cwd") or "").rstrip("\\/"))[-1]
+    project = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-._")[:128]
+    return json.dumps({"project": project} if project else {})
 
 
 async def _store(prompt: str, payload: dict):
@@ -161,7 +159,9 @@ async def _store(prompt: str, payload: dict):
     # Round-trip through utf-8 with errors="replace": prompts pasted from
     # transcripts can carry lone surrogates, and one stored surrogate 500s
     # the session-detail endpoint and wedges the improve pipeline server-side.
-    safe_prompt = prompt[:MAX_TEXT].encode("utf-8", errors="replace").decode("utf-8")
+    safe_prompt = (
+        _redact_secrets(prompt[:MAX_TEXT]).encode("utf-8", errors="replace").decode("utf-8")
+    )
     remember_pending_prompt(
         session_id,
         safe_prompt,

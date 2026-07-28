@@ -1066,10 +1066,8 @@ def _session_start_guidance(mode: str, dataset: str, session_id: str, ready: boo
         message = (
             "## Cognee Memory Connected\n"
             f"Mode: {mode} | Dataset: {dataset} | Session: {session_id}\n\n"
-            "Cognee organizes knowledge into three categories.\n"
-            "- user_context: user preferences and personal facts\n"
-            "- project_docs: repository and project knowledge\n"
-            "- agent_actions: tool traces and agent findings\n\n"
+            "Cognee stores durable decisions, constraints, corrections, outcomes, "
+            "preferences, and open project questions. Tool traces are excluded.\n\n"
             "Use /cognee-memory:cognee-remember to store permanent memory, "
             "and /cognee-memory:cognee-search to query by node set."
         )
@@ -1079,7 +1077,7 @@ def _session_start_guidance(mode: str, dataset: str, session_id: str, ready: boo
             f"Mode: {mode} | Dataset: {dataset} | Session: {session_id}\n\n"
             "The local Cognee server is starting up (first run or database "
             "migrations can take a little while). Your prompts work normally now; "
-            "memory recall activates automatically once the server is ready."
+            "on-demand memory search activates once the server is ready."
         )
     return {
         "hookSpecificOutput": {

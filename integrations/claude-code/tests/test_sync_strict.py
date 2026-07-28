@@ -30,7 +30,7 @@ def _stub(wrote, *, unregister_calls=None):
             "_load_resolved",
             "load_config",
             "http_api_ready",
-            "run_session_improve",
+            "run_session_distill",
             "unregister_agent_via_http",
             "hook_log",
         )
@@ -39,7 +39,7 @@ def _stub(wrote, *, unregister_calls=None):
     m._load_resolved = lambda: ("sess1", "ds", "u1", "agent1", True, True, "key1")
     m.load_config = lambda: {}
     m.http_api_ready = lambda: True
-    m.run_session_improve = lambda d, s: wrote
+    m.run_session_distill = lambda d, s: wrote
     m.unregister_agent_via_http = lambda **k: (
         (unregister_calls.append(k) if unregister_calls is not None else None) or (True, 0)
     )

@@ -1,14 +1,13 @@
-"""Contract tests for Codex UserPromptSubmit hook output."""
+"""Contract tests for selective Codex session capture."""
 
-import asyncio
 import importlib.util
 import json
 import pathlib
-import subprocess
 import sys
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_SCRIPTS = _ROOT / "plugins" / "cognee" / "scripts"
+_PLUGIN = _ROOT / "plugins" / "cognee"
+_SCRIPTS = _PLUGIN / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
 
@@ -19,81 +18,70 @@ def _load_script(name):
     return module
 
 
-def test_context_output_uses_codex_schema(tmp_path, monkeypatch):
-    module = _load_script("session-context-lookup.py")
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(module, "load_config", lambda: {})
-    monkeypatch.setattr(module, "resolve_runtime_mode", lambda: {"mode": "http", "base_url": ""})
-    monkeypatch.setattr(module, "server_ready_hint", lambda _url: True)
-    monkeypatch.setattr(module, "get_session_key", lambda: "session")
-    monkeypatch.setattr(
-        module,
-        "read_and_reset_save_counter",
-        lambda _session: {"prompt": 0, "trace": 0, "answer": 0},
-    )
-    monkeypatch.setattr(module, "recall_via_http", lambda *args, **kwargs: [])
-    monkeypatch.setattr(module, "render_status_for_host", lambda _session: "Cognee")
-
-    output = asyncio.run(module._run("remember this"))
-
-    assert output["systemMessage"].startswith("Cognee")
-    assert "systemMessage" not in output["hookSpecificOutput"]
-    assert output["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
-
-
-def test_recall_tuning(monkeypatch):
-    context_module = _load_script("session-context-lookup.py")
-    calls = []
-    monkeypatch.setattr(
-        context_module,
-        "load_config",
-        lambda: {"top_k": 12, "recall_timeout": 5.0, "recall_budget": 5.5},
-    )
-    monkeypatch.setattr(
-        context_module,
-        "resolve_runtime_mode",
-        lambda: {"mode": "http", "base_url": ""},
-    )
-    monkeypatch.setattr(context_module, "server_ready_hint", lambda _url: True)
-    monkeypatch.setattr(context_module, "_load_session_id", lambda: "session")
-    monkeypatch.setattr(
-        context_module,
-        "read_and_reset_save_counter",
-        lambda _session: {"prompt": 0, "trace": 0, "answer": 0},
-    )
-    def _recall(*args, **kwargs):
-        calls.append(kwargs)
-        if kwargs["scope"] == ["graph"]:
-            return [{"source": "graph", "text": "project memory"}]
-        return []
-
-    monkeypatch.setattr(context_module, "recall_via_http", _recall)
-    monkeypatch.setattr(context_module, "render_status_for_host", lambda _session: "Cognee")
-
-    asyncio.run(context_module._run("remember this"))
-    assert {call["top_k"] for call in calls} == {12}
-    assert {call["timeout"] for call in calls} == {5.0}
-    assert [call["scope"][0] for call in calls] == [
-        "session",
-        "trace",
-        "graph",
-        "session_context",
+def _commands(manifest, event):
+    return [
+        hook["command"]
+        for group in manifest["hooks"].get(event, [])
+        for hook in group.get("hooks", [])
     ]
 
 
-def test_noop_hooks_emit_valid_user_prompt_submit_json(tmp_path):
-    payload = json.dumps({"session_id": "test", "prompt": "no"})
-    for script in ("session-context-lookup.py", "store-user-prompt.py"):
-        result = subprocess.run(
-            [sys.executable, str(_SCRIPTS / script)],
-            input=payload,
-            text=True,
-            capture_output=True,
-            check=True,
-            env={"HOME": str(tmp_path), "PATH": str(pathlib.Path(sys.executable).parent)},
-        )
-        output = json.loads(result.stdout)
-        assert output["hookSpecificOutput"] == {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": "",
+def test_hook_manifest_captures_prompts_and_answers_without_tool_traces_or_recall():
+    manifest = json.loads((_PLUGIN / "hooks.json").read_text(encoding="utf-8"))
+
+    assert "PostToolUse" not in manifest["hooks"]
+    assert _commands(manifest, "UserPromptSubmit") == [
+        'python3 "${PLUGIN_ROOT}/scripts/store-user-prompt.py"'
+    ]
+    assert _commands(manifest, "Stop") == [
+        'python3 "${PLUGIN_ROOT}/scripts/store-to-session.py" --stop'
+    ]
+    assert len(_commands(manifest, "PreCompact")) == 1
+    assert len(_commands(manifest, "SessionEnd")) == 1
+
+
+def test_precompact_anchor_is_session_only_and_bounded():
+    module = _load_script("pre-compact.py")
+    entries = [
+        {
+            "question": "Q" * 5000,
+            "answer": "A" * 5000,
+            "origin_function": "Bash",
+            "method_return_value": "tool output",
         }
+    ]
+
+    anchor = module._build_anchor(entries)
+
+    assert 0 < len(anchor) <= 4000
+    assert "Bash" not in anchor
+    assert "tool output" not in anchor
+
+
+def test_prompt_context_keeps_only_project_slug():
+    module = _load_script("store-user-prompt.py")
+
+    context = json.loads(
+        module._prompt_context(
+            {
+                "cwd": r"C:\git\contextctl",
+                "model": "secret-model",
+                "turn_id": "secret-turn",
+                "transcript_path": r"C:\secret\transcript.jsonl",
+            }
+        )
+    )
+
+    assert context == {"project": "contextctl"}
+
+
+def test_capture_redacts_common_secret_shapes():
+    module = _load_script("store-user-prompt.py")
+    text = "API_KEY=supersecret Bearer bearer-secret sk-1234567890abcdefghijkl"
+
+    redacted = module._redact_secrets(text)
+
+    assert "supersecret" not in redacted
+    assert "bearer-secret" not in redacted
+    assert "sk-1234567890abcdefghijkl" not in redacted
+    assert redacted.count("[REDACTED]") == 3

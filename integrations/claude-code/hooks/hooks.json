@@ -17,26 +17,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session-context-lookup.py",
-            "timeout": 120,
-            "statusMessage": "Searching session memory..."
-          },
-          {
-            "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/store-user-prompt.py",
-            "async": true
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash|Agent|Read|Write|Edit|Grep|Glob",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/store-to-session.py",
-            "async": true
+            "timeout": 120,
+            "statusMessage": "Saving user prompt..."
           }
         ]
       }

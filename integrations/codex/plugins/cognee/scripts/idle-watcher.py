@@ -90,7 +90,7 @@ async def _improve_once(session_id: str, dataset: str, config: dict) -> bool:
             http_api_ready,
             load_resolved,
             resolve_user,
-            run_session_improve,
+            run_session_distill,
             set_session_key,
             sync_lock,
         )
@@ -114,19 +114,19 @@ async def _improve_once(session_id: str, dataset: str, config: dict) -> bool:
 
         try:
             from config import (  # type: ignore
+                distill_session_local,
                 ensure_cognee_ready,
                 ensure_dataset_ready,
                 ensure_identity,
-                improve_session_local,
             )
 
             if api_mode:
-                wrote = run_session_improve(dataset, session_id)
+                wrote = run_session_distill(dataset, session_id)
                 _log(
                     "session_bridge_done",
                     session=session_id,
                     dataset=dataset,
-                    via="http_improve",
+                    via="http_distill",
                     wrote=wrote,
                 )
                 return True
@@ -139,13 +139,13 @@ async def _improve_once(session_id: str, dataset: str, config: dict) -> bool:
             user = await resolve_user(user_id) if user_id else None
             if user:
                 await ensure_dataset_ready(dataset, user)
-                result = await improve_session_local(dataset, session_id, user)
+                result = await distill_session_local(dataset, session_id, user)
                 _log(
                     "session_bridge_done",
                     session=session_id,
                     dataset=dataset,
                     user_id=str(user.id),
-                    via="local_improve",
+                    via="local_distill",
                     ok=bool(result.get("ok")),
                 )
             return True

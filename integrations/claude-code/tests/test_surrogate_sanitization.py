@@ -75,13 +75,6 @@ def test_truncate_str_none_and_plain_text_unchanged():
     assert store_session._truncate_str("émoji ✨", 100) == "émoji ✨"
 
 
-def test_infer_status_error_message_sanitized():
-    payload = {"tool_response": {"is_error": True, "error": SURROGATE_TEXT}}
-    status, err = store_session._infer_status(payload)
-    assert status == "error"
-    err.encode("utf-8")  # must not raise
-
-
 def test_store_user_prompt_sanitizes_pending_prompt():
     # Drive _store with all module seams patched; the prompt handed to
     # remember_pending_prompt must be strictly valid UTF-8.

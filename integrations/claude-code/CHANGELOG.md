@@ -10,6 +10,11 @@ Code only offers an update when that string changes. Tag releases as
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Capture paired prompts and final answers only; remove prompt-time recall and tool traces.
+- Redact common secret shapes and distill only typed durable memories through `/api/v1/improve/distill`.
+
 ## [1.0.0]
 
 First release under formal semantic versioning — marks the official start of

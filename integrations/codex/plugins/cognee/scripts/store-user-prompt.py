@@ -12,6 +12,7 @@ Configuration:
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 # Add scripts dir to path for helper imports
 sys.path.insert(0, os.path.dirname(__file__))
 from _plugin_common import (
+    _redact_secrets,
     bump_save_counter,
     get_session_key,
     hook_log,
@@ -116,13 +118,9 @@ def _ensure_idle_watcher(session_id: str, dataset: str, user_id: str, config: di
 
 
 def _prompt_context(payload: dict) -> str:
-    context = {
-        "cwd": payload.get("cwd"),
-        "model": payload.get("model"),
-        "turn_id": payload.get("turn_id"),
-        "transcript_path": payload.get("transcript_path"),
-    }
-    return json.dumps({k: v for k, v in context.items() if v}, default=str)
+    name = re.split(r"[\\/]", str(payload.get("cwd") or "").rstrip("\\/"))[-1]
+    project = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-._")[:128]
+    return json.dumps({"project": project} if project else {})
 
 
 async def _store(prompt: str, payload: dict):
@@ -149,7 +147,7 @@ async def _store(prompt: str, payload: dict):
 
     remember_pending_prompt(
         session_id,
-        prompt[:MAX_TEXT],
+        _redact_secrets(prompt[:MAX_TEXT]),
         turn_id=str(payload.get("turn_id") or ""),
         context=_prompt_context(payload),
     )

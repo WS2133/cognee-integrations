@@ -10,6 +10,11 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Capture paired prompts and final answers only; remove prompt-time recall and tool traces.
+- Redact common secret shapes and distill only typed durable memories through `/api/v1/improve/distill`.
+
 ## [1.1.0]
 
 Bundles the arc since the automatic install/server-bootstrap work. Shares most
