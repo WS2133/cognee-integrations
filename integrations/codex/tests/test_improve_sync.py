@@ -67,7 +67,7 @@ def test_distill_posts_only_dataset_and_session():
         "sessionId": "session-1",
     }
     assert request.get_header("X-api-key") == "k"
-    assert captured["timeout"] >= 60
+    assert captured["timeout"] >= 600
 
 
 def test_distill_network_error_is_graceful():
@@ -121,10 +121,10 @@ def test_run_session_distill_drains_then_distills():
     assert calls == {"drain": 1, "distill": 1}
 
 
-def test_incomplete_drain_distills_but_reports_false_for_retry():
+def test_incomplete_drain_defers_distillation_for_retry():
     result, calls = _run_distill(drain_results=[(0, 2), (0, 2)])
     assert result is False
-    assert calls == {"drain": 2, "distill": 1}
+    assert calls == {"drain": 2, "distill": 0}
 
 
 def test_distill_failure_returns_false():

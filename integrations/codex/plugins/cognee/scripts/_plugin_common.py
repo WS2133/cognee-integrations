@@ -541,7 +541,9 @@ def _buffer_lock():
             os.close(fd)
             acquired = True
             break
-        except FileExistsError:
+        # Windows can report an existing file opened with O_EXCL as EACCES
+        # while another thread is releasing it, so both errors mean "busy".
+        except (FileExistsError, PermissionError):
             if time.monotonic() >= deadline:
                 hook_log("buffer_lock_timeout", {})
                 break
@@ -1874,7 +1876,7 @@ def distill_session_via_http(
     dataset: str,
     session_id: str,
     *,
-    timeout: float = 180.0,
+    timeout: float = 600.0,
 ) -> dict:
     """Promote durable lessons from one Q&A session; never persist the raw transcript."""
     if not dataset or not session_id:
@@ -1901,6 +1903,12 @@ def run_session_distill(dataset: str, session_id: str) -> bool:
         if remaining:
             time.sleep(_DRAIN_RETRY_PAUSE_SECONDS)
             _, remaining = drain_warmup_entries(dataset, session_id)
+        if remaining:
+            hook_log(
+                "distill_deferred_pending",
+                {"dataset": dataset, "session": session_id, "pending": remaining},
+            )
+            return False
         ensure_dataset_via_http(dataset)
         outcome = distill_session_via_http(dataset, session_id)
         hook_log(

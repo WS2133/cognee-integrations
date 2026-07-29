@@ -181,6 +181,28 @@ def test_concurrent_appends_do_not_lose_entries():
     assert sorted(e["origin_function"] for e in entries) == [f"tool{i}" for i in range(8)]
 
 
+def test_buffer_lock_retries_windows_permission_contention():
+    def _run():
+        real_open = pc.os.open
+        calls = 0
+
+        def _open(path, flags):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise PermissionError(13, "Permission denied", path)
+            return real_open(path, flags)
+
+        pc.os.open = _open
+        try:
+            with pc._buffer_lock() as acquired:
+                return acquired
+        finally:
+            pc.os.open = real_open
+
+    assert _with_tmp_bridge(_run) is True
+
+
 def test_append_fails_open_when_lock_held():
     # A wedged lock must never make a hook hang or drop the entry: after the
     # short wait the append proceeds without the lock.
