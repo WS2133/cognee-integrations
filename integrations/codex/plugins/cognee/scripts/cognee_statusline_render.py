@@ -21,6 +21,7 @@ _CONFIG_PATH = _SHARED_ROOT / "config.json"
 _SERVER_READY_PATH = _SHARED_ROOT / "server-ready.json"
 _BREAKER_PATH = _SHARED_ROOT / "recall-breaker.json"
 _UPDATE_CHECK_PATH = _SHARED_ROOT / "codex" / "update-check.json"
+_PLUGIN_MANIFEST_PATH = Path(__file__).resolve().parent.parent / ".codex-plugin" / "plugin.json"
 _DEFAULT_DATASET = "agent_sessions"
 
 
@@ -81,6 +82,11 @@ def _update_segment() -> str:
     if not (isinstance(marker, dict) and marker.get("update_available")):
         return ""
     installed = str(marker.get("installed_version") or "")
+    try:
+        current = json.loads(_PLUGIN_MANIFEST_PATH.read_text(encoding="utf-8"))
+        installed = str(current.get("version") or installed)
+    except Exception:
+        pass
     latest = str(marker.get("latest_version") or "")
     if not (installed and latest):
         return ""

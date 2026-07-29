@@ -10,6 +10,11 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.3+codex.20260730041850]
+
+- Render the installed plugin version from the live manifest instead of a
+  stale once-daily update marker after an upgrade.
+
 ## [1.1.2+codex.20260730035502]
 
 - Preserve the private selective-memory behavior through a documented,

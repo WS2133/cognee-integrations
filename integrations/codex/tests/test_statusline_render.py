@@ -13,11 +13,14 @@ test is meaningful on any OS. Run: `python integrations/codex/tests/test_statusl
 (or via pytest).
 """
 
+import importlib.util
+import json
 import os
 import pathlib
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 
 _RENDERER = (
     pathlib.Path(__file__).resolve().parents[1]
@@ -74,6 +77,39 @@ def test_glyph_renders_under_legacy_codepage():
 def test_glyph_renders_under_utf8():
     # Sanity: the UTF-8 forcing must not disturb the normal (already-UTF-8) path.
     _assert_renders_glyph("utf-8")
+
+
+def test_update_segment_uses_current_manifest_version():
+    spec = importlib.util.spec_from_file_location("cognee_statusline_render_test", _RENDERER)
+    renderer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(renderer)
+
+    with tempfile.TemporaryDirectory() as temp:
+        root = pathlib.Path(temp)
+        marker = root / "update-check.json"
+        manifest = root / "plugin.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "installed_version": "1.1.0",
+                    "latest_version": "1.2.0",
+                    "update_available": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        manifest.write_text(
+            json.dumps({"version": "1.1.2"}),
+            encoding="utf-8",
+        )
+        renderer._UPDATE_CHECK_PATH = marker
+        renderer._PLUGIN_MANIFEST_PATH = manifest
+
+        with patch.dict(os.environ, {"COGNEE_UPDATE_CHECK": "true"}):
+            segment = renderer._update_segment()
+
+    assert "1.1.2" in segment
+    assert "1.1.0" not in segment
 
 
 if __name__ == "__main__":
