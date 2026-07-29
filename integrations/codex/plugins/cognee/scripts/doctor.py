@@ -78,6 +78,7 @@ def _resolve_mode() -> str:
 
 
 _DEFAULT_LOCAL_SERVICE_URL = "http://localhost:8011"
+_DEFAULT_LOCAL_UI_URL = "http://localhost:3000"
 
 
 def _resolve_server_url() -> tuple:
@@ -94,6 +95,16 @@ def _resolve_server_url() -> tuple:
     mode = _resolve_mode()
     display = "-" if mode == "Local" else raw_url
     return display, raw_url
+
+
+def _resolve_dashboard_url() -> str | None:
+    """Return the configured UI, or the local default only in local mode."""
+    from config import load_config
+
+    configured = str(load_config().get("ui_url") or "").strip()
+    if configured:
+        return configured
+    return _DEFAULT_LOCAL_UI_URL if _resolve_mode() != "Cloud" else None
 
 
 _SHARED_PLUGIN_ROOT = pathlib.Path.home() / ".cognee-plugin"
@@ -187,6 +198,7 @@ def collect_report() -> dict:
     """Gather all diagnostic fields into an ordered dict."""
     mode = _resolve_mode()
     display_url, raw_url = _resolve_server_url()
+    dashboard_url = _resolve_dashboard_url()
     api_key_source = _resolve_api_key_source()
     health = _check_health(raw_url)
     cognee_server = _resolve_server_version(health["raw_body"])
@@ -197,6 +209,7 @@ def collect_report() -> dict:
     return {
         "mode": mode,
         "server_url": display_url if display_url != "-" else None,
+        "dashboard_url": dashboard_url,
         "api_key_source": api_key_source,
         "reachable": health["reachable"],
         "latency_ms": health["latency_ms"],
@@ -211,6 +224,7 @@ def collect_report() -> dict:
 _DISPLAY_ORDER = [
     ("Mode", "mode"),
     ("Server URL", "server_url"),
+    ("Dashboard URL", "dashboard_url"),
     ("API Key Source", "api_key_source"),
     ("Reachable", "reachable"),
     ("Latency", "latency_ms"),

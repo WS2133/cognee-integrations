@@ -34,6 +34,7 @@ _SAVE_COUNTER = _PLUGIN_DIR / "save_counter.json"
 _SERVER_READY_MARKER = _SHARED_PLUGIN_ROOT / "server-ready.json"
 _SERVER_READY_TTL_SECONDS = 30
 _SYNC_LOCK = _PLUGIN_DIR / "sync.lock"
+_DISTILL_LOCK_DIR = _PLUGIN_DIR / "distill-locks"
 # Per-agent-session buffer dirs. Each agent session (one Claude/Codex terminal)
 # owns its own file under these dirs, so two concurrent agents never
 # read-modify-write the same file — no locks needed, no lost-update races.
@@ -1038,6 +1039,50 @@ def touch_activity() -> None:
 
 
 @contextmanager
+def distill_session_lock(session_id: str, owner: str):
+    """Admit one in-flight selective distillation per session."""
+    if not session_id:
+        yield True
+        return
+
+    lock_path = _DISTILL_LOCK_DIR / f"{hashlib.sha1(session_id.encode()).hexdigest()}.lock"
+    acquired = False
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc).timestamp()
+        if lock_path.exists():
+            try:
+                current = json.loads(lock_path.read_text(encoding="utf-8"))
+                created_at = float(current.get("created_at", 0))
+                pid = int(current.get("pid", 0))
+            except Exception:
+                created_at, pid = 0.0, 0
+            if not (pid > 0 and _proc.pid_alive(pid)) or now - created_at > SYNC_LOCK_STALE_SECONDS:
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump({"owner": owner, "pid": os.getpid(), "created_at": now}, fh)
+            acquired = True
+            yield True
+        except FileExistsError:
+            hook_log("distill_skipped_concurrent", {"session": session_id, "owner": owner})
+            yield False
+    except Exception as exc:
+        hook_log("distill_lock_failed_open", {"session": session_id, "error": str(exc)[:200]})
+        yield True
+    finally:
+        if acquired:
+            try:
+                lock_path.unlink()
+            except Exception as exc:
+                hook_log("distill_lock_release_failed", {"error": str(exc)[:200]})
+
+
+@contextmanager
 def sync_lock(owner: str):
     """Best-effort cross-hook lock for graph sync/improve work."""
     acquired = False
@@ -1849,24 +1894,25 @@ def distill_session_via_http(
 
 def run_session_distill(dataset: str, session_id: str) -> bool:
     """Drain buffered Q&A entries, then selectively distill durable lessons."""
-    if not _backend_reachable(_local_api_url()):
-        return False
-    _, remaining = drain_warmup_entries(dataset, session_id)
-    if remaining:
-        time.sleep(_DRAIN_RETRY_PAUSE_SECONDS)
+    with distill_session_lock(session_id, "run_session_distill") as claimed:
+        if not claimed or not _backend_reachable(_local_api_url()):
+            return False
         _, remaining = drain_warmup_entries(dataset, session_id)
-    ensure_dataset_via_http(dataset)
-    outcome = distill_session_via_http(dataset, session_id)
-    hook_log(
-        "distill_fired",
-        {
-            "dataset": dataset,
-            "session": session_id,
-            "ok": bool(outcome.get("ok")),
-            "error": str(outcome.get("error") or "")[:120],
-        },
-    )
-    return bool(outcome.get("ok")) and not remaining
+        if remaining:
+            time.sleep(_DRAIN_RETRY_PAUSE_SECONDS)
+            _, remaining = drain_warmup_entries(dataset, session_id)
+        ensure_dataset_via_http(dataset)
+        outcome = distill_session_via_http(dataset, session_id)
+        hook_log(
+            "distill_fired",
+            {
+                "dataset": dataset,
+                "session": session_id,
+                "ok": bool(outcome.get("ok")),
+                "error": str(outcome.get("error") or "")[:120],
+            },
+        )
+        return bool(outcome.get("ok")) and not remaining
 
 
 def ensure_dataset_via_http(dataset: str) -> None:

@@ -27,7 +27,10 @@ _TMP = tempfile.mkdtemp(prefix="cognee-doctor-codex-test-")
 os.environ["COGNEE_PLUGIN_STATE_DIR"] = _TMP
 
 import _plugin_common  # noqa: E402
+import config  # noqa: E402
 import doctor  # noqa: E402
+
+config._CONFIG_FILE = pathlib.Path(_TMP) / "config.json"
 
 
 def _reset_env(*keys):
@@ -137,6 +140,29 @@ def test_server_url_shown_in_server_mode():
     try:
         _display, raw = doctor._resolve_server_url()
         assert "custom:9999" in raw
+    finally:
+        _reset_env("COGNEE_BASE_URL")
+
+
+# Dashboard URL
+
+
+def test_dashboard_url_uses_explicit_remote_setting():
+    os.environ["COGNEE_BASE_URL"] = "http://remote-api:8001"
+    os.environ["COGNEE_UI_URL"] = "http://remote-ui:3031/"
+    try:
+        assert doctor._resolve_dashboard_url() == "http://remote-ui:3031/"
+    finally:
+        _reset_env("COGNEE_BASE_URL", "COGNEE_UI_URL")
+
+
+def test_dashboard_url_defaults_only_for_local_mode():
+    _reset_env("COGNEE_BASE_URL", "COGNEE_UI_URL")
+    assert doctor._resolve_dashboard_url() == "http://localhost:3000"
+
+    os.environ["COGNEE_BASE_URL"] = "http://remote-api:8001"
+    try:
+        assert doctor._resolve_dashboard_url() is None
     finally:
         _reset_env("COGNEE_BASE_URL")
 
@@ -257,6 +283,7 @@ def test_json_output():
     expected = {
         "mode",
         "server_url",
+        "dashboard_url",
         "api_key_source",
         "reachable",
         "latency_ms",

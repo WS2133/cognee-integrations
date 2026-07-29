@@ -14,6 +14,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 - Capture paired prompts and final answers only; remove prompt-time recall and tool traces.
 - Redact common secret shapes and distill only typed durable memories through `/api/v1/improve/distill`.
+- Admit only one selective distillation per session at a time.
 
 ## [1.0.0]
 

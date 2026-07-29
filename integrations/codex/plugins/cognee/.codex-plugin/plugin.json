@@ -1,6 +1,6 @@
 {
   "name": "cognee",
-  "version": "1.1.0+codex.20260728065525",
+  "version": "1.1.1+codex.20260730034517",
   "description": "CLI-first Cognee workflows for memory, knowledge graphs, codebase ingestion, and local UI launch.",
   "author": {
     "name": "Topoteretes",

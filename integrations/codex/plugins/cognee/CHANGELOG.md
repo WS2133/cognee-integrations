@@ -10,10 +10,13 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## [1.1.1+codex.20260730034517]
 
 - Capture paired prompts and final answers only; remove prompt-time recall and tool traces.
 - Redact common secret shapes and distill only typed durable memories through `/api/v1/improve/distill`.
+- Resolve an explicit `COGNEE_UI_URL` before opening a dashboard; never substitute
+  localhost for a remote Cognee server.
+- Admit only one selective distillation per session at a time.
 
 ## [1.1.0]
 

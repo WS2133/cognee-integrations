@@ -3,6 +3,7 @@
 import json
 import pathlib
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -130,3 +131,17 @@ def test_distill_failure_returns_false():
     result, calls = _run_distill(response={"ok": False, "status": 500})
     assert result is False
     assert calls["distill"] == 1
+
+
+def test_run_session_distill_skips_when_same_session_is_in_flight():
+    original_dir = pc._DISTILL_LOCK_DIR
+    with tempfile.TemporaryDirectory(prefix="cognee-distill-lock-") as temp_dir:
+        pc._DISTILL_LOCK_DIR = pathlib.Path(temp_dir)
+        try:
+            with pc.distill_session_lock("sid", "holder") as claimed:
+                assert claimed is True
+                result, calls = _run_distill()
+            assert result is False
+            assert calls == {"drain": 0, "distill": 0}
+        finally:
+            pc._DISTILL_LOCK_DIR = original_dir
