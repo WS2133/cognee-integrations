@@ -35,6 +35,20 @@ $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "cognee-plugin-$runId"
 $archivePath = Join-Path $tempRoot "cognee.zip"
 $expandedRoot = Join-Path $tempRoot "expanded"
 
+function Get-PackageFingerprint {
+    param([string]$Root)
+
+    @(
+        Get-ChildItem -LiteralPath $Root -Recurse -File |
+            Where-Object { $_.FullName -notmatch '\\__pycache__\\' } |
+            ForEach-Object {
+                $relative = $_.FullName.Substring($Root.Length).TrimStart("\")
+                "$relative|$((Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash)"
+            } |
+            Sort-Object
+    )
+}
+
 New-Item -ItemType Directory -Path $personalParent, $cacheRoot, $tempRoot, $expandedRoot -Force | Out-Null
 
 try {
@@ -60,7 +74,19 @@ try {
         throw
     }
 
-    if (-not (Test-Path -LiteralPath $cacheTarget)) {
+    if (Test-Path -LiteralPath $cacheTarget) {
+        $cacheDifference = @(
+            Compare-Object (
+                Get-PackageFingerprint -Root $personalPluginRoot
+            ) (
+                Get-PackageFingerprint -Root $cacheTarget
+            )
+        )
+        if ($cacheDifference.Count -gt 0) {
+            throw "Cache version '$version' has different content; bump the plugin version."
+        }
+    }
+    else {
         Copy-Item -LiteralPath $personalPluginRoot -Destination $cacheTarget -Recurse
     }
 

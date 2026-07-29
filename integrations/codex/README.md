@@ -213,6 +213,7 @@ For each upstream release:
 git fetch origin
 git switch codex/selective-memory-capture
 git rebase origin/main
+# Bump plugin.json to <upstream-version>+codex.<timestamp> and update CHANGELOG.md.
 uv run --isolated --with pytest pytest -q integrations/codex/tests integrations/codex/plugins/cognee/tests
 uv run --isolated --with ruff ruff check integrations/codex
 git push fork codex/selective-memory-capture
@@ -223,8 +224,9 @@ Resolve rebase conflicts in favor of selective prompt/final-answer capture:
 no `PostToolUse`, no automatic prompt-time recall, explicit remote dashboard
 URLs, and one distillation per session. The tests enforce those contracts.
 The installer refuses dirty plugin files, packages committed `HEAD`, updates
-the personal marketplace source, creates a versioned cache entry, and leaves
-older cache versions available for rollback. Restart Codex after installation.
+the personal marketplace source, creates a versioned cache entry, rejects
+changed content under an already-used version, and leaves older cache versions
+available for rollback. Restart Codex after installation.
 
 ### Public marketplace
 
