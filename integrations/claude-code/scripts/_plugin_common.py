@@ -2139,7 +2139,7 @@ def distill_session_via_http(
     try:
         result = _json_http_request(
             "/api/v1/improve/distill",
-            {"dataset_name": dataset, "session_id": session_id},
+            {"datasetName": dataset, "sessionId": session_id},
             timeout=timeout,
         )
         return {"ok": True, "result": result if isinstance(result, dict) else {}}

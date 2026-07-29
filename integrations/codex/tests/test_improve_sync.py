@@ -62,8 +62,8 @@ def test_distill_posts_only_dataset_and_session():
     assert result["ok"] is True
     assert request.full_url == "http://x/api/v1/improve/distill"
     assert json.loads(request.data) == {
-        "dataset_name": "project-context",
-        "session_id": "session-1",
+        "datasetName": "project-context",
+        "sessionId": "session-1",
     }
     assert request.get_header("X-api-key") == "k"
     assert captured["timeout"] >= 60
