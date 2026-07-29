@@ -10,6 +10,11 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.1+codex.20260730045300]
+
+- Record upstream 1.3 as the private branch merge base while retaining the
+  smaller selective-capture and remote-dashboard implementation.
+
 ## [1.1.4+codex.20260730044351]
 
 - Retry Windows lock contention instead of losing concurrent capture entries.
