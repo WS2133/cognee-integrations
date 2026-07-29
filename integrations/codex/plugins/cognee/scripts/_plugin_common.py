@@ -1440,7 +1440,7 @@ def _json_http_request(
 
     data = None
     if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8", errors="replace")
 
     req = urllib.request.Request(
         f"{base_url}{path}",

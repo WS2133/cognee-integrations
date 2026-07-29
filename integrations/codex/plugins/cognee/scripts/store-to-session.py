@@ -77,7 +77,7 @@ async def _store_assistant_stop(payload: dict) -> None:
     runtime = resolve_runtime_mode()
     use_http = runtime["mode"] == "http"
 
-    if not server_ready_hint(runtime.get("base_url", "")):
+    if not use_http and not server_ready_hint(runtime.get("base_url", "")):
         append_warmup_entry(dataset, session_id, entry)
         append_http_bridge_entry(
             dataset,
