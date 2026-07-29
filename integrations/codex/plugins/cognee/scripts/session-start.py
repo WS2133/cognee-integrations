@@ -1217,8 +1217,8 @@ def _update_nudge_suffix() -> str:
     except Exception:
         pass
     return (
-        f"\n\nCognee update available {installed} → {latest} — run "
-        "`codex plugin marketplace upgrade cognee` to update."
+        f"\n\nUpstream Cognee update available {installed} → {latest} — "
+        "merge it into the private overlay before reinstalling."
     )
 
 

@@ -10,6 +10,13 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.2+codex.20260730035502]
+
+- Preserve the private selective-memory behavior through a documented,
+  committed-head installer for future upstream upgrades.
+- Label update notices as upstream releases that must be merged into the
+  private overlay before installation.
+
 ## [1.1.1+codex.20260730034517]
 
 - Capture paired prompts and final answers only; remove prompt-time recall and tool traces.

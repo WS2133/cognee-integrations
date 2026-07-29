@@ -200,6 +200,34 @@ local-vs-cloud mode split, and how often an open recall breaker skipped recall.
 
 ## Updating
 
+### Private overlay
+
+Will's installed `cognee@personal` plugin comes from the private
+`WS2133/cognee-integrations` fork on branch
+`codex/selective-memory-capture`. Do not replace it directly with the public
+marketplace build.
+
+For each upstream release:
+
+```powershell
+git fetch origin
+git switch codex/selective-memory-capture
+git rebase origin/main
+uv run --isolated --with pytest pytest -q integrations/codex/tests integrations/codex/plugins/cognee/tests
+uv run --isolated --with ruff ruff check integrations/codex
+git push fork codex/selective-memory-capture
+.\integrations\codex\scripts\install-private-plugin.ps1
+```
+
+Resolve rebase conflicts in favor of selective prompt/final-answer capture:
+no `PostToolUse`, no automatic prompt-time recall, explicit remote dashboard
+URLs, and one distillation per session. The tests enforce those contracts.
+The installer refuses dirty plugin files, packages committed `HEAD`, updates
+the personal marketplace source, creates a versioned cache entry, and leaves
+older cache versions available for rollback. Restart Codex after installation.
+
+### Public marketplace
+
 The `cognee` marketplace tracks the repository's `main` branch (`git-subdir`,
 `ref: main`), so updates arrive as new commits — they are **not** gated by the
 plugin `version` field. Pull the latest with:
