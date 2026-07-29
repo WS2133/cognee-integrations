@@ -10,6 +10,12 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.4+codex.20260730044351]
+
+- Retry Windows lock contention instead of losing concurrent capture entries.
+- Wait up to ten minutes for subscription-backed distillation and defer it
+  until every buffered entry reaches Cognee.
+
 ## [1.1.3+codex.20260730041850]
 
 - Render the installed plugin version from the live manifest instead of a
