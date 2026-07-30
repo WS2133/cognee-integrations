@@ -1,11 +1,8 @@
-"""Unit tests for the codex session->graph improve bridge
-(_plugin_common.improve_session_via_http and run_session_improve).
+"""Unit tests for the Codex session distillation bridge.
 
-Mirrors the claude-code suite, minus status polling (the codex helper is
-submit-only): the sync POSTs /api/v1/improve with {dataset_name, session_ids,
-run_in_background}; a 2xx submit counts as success; 404/405/422 marks the
-server improve-unsupported and falls back to the legacy document bridge;
-warmup entries drain before improve.
+The sync posts only the dataset and session ID to the selective distillation
+endpoint. Missing/failed endpoints remain retryable and never fall back to
+persisting the raw session document.
 
 Run: python integrations/codex/tests/test_improve_sync.py (or via pytest).
 """
@@ -54,10 +51,10 @@ def test_improve_posts_expected_json_payload():
     captured = {}
     orig = urllib.request.urlopen
 
-    def _fake(req, timeout=None):
+    def _fake(req, timeout=None, **kwargs):
         captured["req"] = req
         captured["timeout"] = timeout
-        return _Resp(b'{"status":"running"}')
+        return _Resp(b'{"status":"completed","accepted_count":1,"rejected_count":0}')
 
     urllib.request.urlopen = _fake
     saved = _with_seams(_local_api_url=lambda: "http://x", _api_key=lambda: "k")
@@ -68,11 +65,9 @@ def test_improve_posts_expected_json_payload():
         urllib.request.urlopen = orig
 
     assert res["ok"] is True
-    assert captured["req"].full_url.endswith("/api/v1/improve")
+    assert captured["req"].full_url.endswith("/api/v1/improve/distill")
     body = json.loads(captured["req"].data.decode("utf-8"))
-    assert body == {"dataset_name": "ds", "session_ids": ["sid"], "run_in_background": True}
-    # Distillation/agent-context run inside the request even in background
-    # mode, so the submit timeout must be generous (default 180s).
+    assert body == {"dataset_name": "ds", "session_id": "sid"}
     assert captured["timeout"] >= 60
 
 
@@ -80,7 +75,7 @@ def test_improve_404_marks_unsupported():
     marker_writes = {}
     orig = urllib.request.urlopen
 
-    def _raise(req, timeout=None):
+    def _raise(req, timeout=None, **kwargs):
         raise urllib.error.HTTPError("http://x", 404, "Not Found", {}, None)
 
     urllib.request.urlopen = _raise
@@ -103,7 +98,7 @@ def test_improve_404_marks_unsupported():
 def test_improve_network_error_is_graceful():
     orig = urllib.request.urlopen
 
-    def _raise(req, timeout=None):
+    def _raise(req, timeout=None, **kwargs):
         raise urllib.error.URLError("connection refused")
 
     urllib.request.urlopen = _raise
@@ -161,18 +156,18 @@ def test_run_session_improve_happy_path_drains_then_improves():
     assert calls == {"drain": 1, "improve": 1, "legacy": 0}
 
 
-def test_run_session_improve_falls_back_when_unsupported_response():
+def test_run_session_improve_does_not_fallback_when_endpoint_is_unsupported():
     wrote, calls = _run_session_improve({"ok": False, "unsupported": True, "status": 404})
-    assert wrote is True
+    assert wrote is False
     assert calls["improve"] == 1
-    assert calls["legacy"] == 1
+    assert calls["legacy"] == 0
 
 
-def test_run_session_improve_skips_improve_when_marker_set():
+def test_run_session_improve_does_not_fallback_when_unsupported_marker_is_set():
     wrote, calls = _run_session_improve({"ok": True}, unsupported_marker=True)
-    assert wrote is True
-    assert calls["improve"] == 0  # marker short-circuits straight to legacy
-    assert calls["legacy"] == 1
+    assert wrote is False
+    assert calls["improve"] == 0
+    assert calls["legacy"] == 0
 
 
 def test_run_session_improve_error_returns_false_without_legacy():
@@ -186,7 +181,7 @@ def test_improve_lock_skip_reports_busy():
     # must surface that as busy, never as success.
     orig = urllib.request.urlopen
 
-    def _fake(req, timeout=None):
+    def _fake(req, timeout=None, **kwargs):
         return _Resp(b"{}")
 
     urllib.request.urlopen = _fake

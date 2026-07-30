@@ -8,6 +8,7 @@ import json
 import logging
 import threading
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
@@ -456,17 +457,16 @@ class CogneeMemoryProvider(MemoryProvider):
             self._sync_thread.join(timeout=10.0)
         if not self._writes_enabled or not self._improve_on_end or self._is_breaker_open():
             return
-        # When to background the graph-build: only when a server will outlive this
-        # process and finish the job. In embedded mode the work runs in-process, so
-        # it must complete synchronously before shutdown or it is lost. Override via
-        # COGNEE_IMPROVE_BACKGROUND.
-        raw_bg = str(self._config.get("improve_background") or "").strip()
-        background = str_to_bool(raw_bg, self._remote_mode) if raw_bg else self._remote_mode
         try:
-            self._bridge.run(
-                self._do_improve(run_in_background=background),
-                timeout=float(self._config.get("improve_timeout", 300)),
-            )
+            if self._remote_mode:
+                self._distill_remote()
+            else:
+                raw_bg = str(self._config.get("improve_background") or "").strip()
+                background = str_to_bool(raw_bg, False) if raw_bg else False
+                self._bridge.run(
+                    self._do_improve(run_in_background=background),
+                    timeout=float(self._config.get("improve_timeout", 300)),
+                )
             self._record_success()
         except Exception as exc:
             self._record_failure()
@@ -714,6 +714,31 @@ class CogneeMemoryProvider(MemoryProvider):
         }
         self._add_user_kwarg(kwargs)
         return await cognee.improve(**kwargs)
+
+    def _distill_remote(self) -> dict[str, Any]:
+        base_url = str(self._config.get("service_url") or "").rstrip("/")
+        if not base_url:
+            base_url = f"http://127.0.0.1:{int(self._config.get('local_port') or 8000)}"
+        headers = {"Content-Type": "application/json"}
+        api_key = str(self._config.get("api_key") or "")
+        if api_key:
+            headers["X-Api-Key"] = api_key
+        request = urllib.request.Request(
+            f"{base_url}/api/v1/improve/distill",
+            data=json.dumps(
+                {
+                    "dataset_name": self._dataset,
+                    "session_id": self._session_cognee_id,
+                }
+            ).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(
+            request,
+            timeout=float(self._config.get("improve_timeout", 300)),
+        ) as response:
+            return json.loads(response.read() or b"{}")
 
     def _handle_recall(self, args: dict[str, Any]) -> str:
         query = str(args.get("query") or "").strip()
