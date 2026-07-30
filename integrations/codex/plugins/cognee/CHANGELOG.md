@@ -10,6 +10,14 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.2+codex.20260730215154]
+
+### Changed
+- Rebased the private build on the official 1.3.0 plugin.
+- Added configured remote-dashboard discovery.
+- Added `COGNEE_EXIT_WATCHER_DISABLED` for hosts that reliably deliver
+  `SessionEnd`.
+
 ## [1.3.0]
 
 ### Added

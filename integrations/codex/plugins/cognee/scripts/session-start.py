@@ -720,6 +720,9 @@ def _spawn_exit_watcher(
     service_url: str = "",
 ) -> None:
     """Launch a detached watcher that syncs only after Codex exits."""
+    if os.environ.get("COGNEE_EXIT_WATCHER_DISABLED", "").lower() in ("1", "true", "yes"):
+        hook_log("exit_watcher_disabled")
+        return
 
     # Cleanup stale watcher pidfiles so the directory does not grow forever.
     try:

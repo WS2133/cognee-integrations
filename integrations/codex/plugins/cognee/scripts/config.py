@@ -46,6 +46,7 @@ _DEFAULTS = {
     "user_password": "default_password",
     # Cloud / remote
     "base_url": "",
+    "ui_url": "",
     "api_key": "",
     # Local mode
     "llm_api_key": "",
@@ -79,6 +80,7 @@ _ENV_MAP = {
     "COGNEE_SESSION_STRATEGY": "session_strategy",
     "COGNEE_SESSION_PREFIX": "session_prefix",
     "COGNEE_BASE_URL": "base_url",
+    "COGNEE_UI_URL": "ui_url",
     "COGNEE_API_KEY": "api_key",
     "COGNEE_USER_EMAIL": "user_email",
     "COGNEE_USER_PASSWORD": "user_password",

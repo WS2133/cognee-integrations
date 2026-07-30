@@ -173,6 +173,16 @@ def test_server_url_falls_back_to_config_file():
         _reset_config()
 
 
+def test_dashboard_url_uses_configured_remote_ui():
+    _reset_env("COGNEE_UI_URL")
+    configured_url = "http://synology.example:3031"
+    _write_config({"ui_url": configured_url})
+    try:
+        assert doctor._resolve_dashboard_url() == configured_url
+    finally:
+        _reset_config()
+
+
 def test_endpoint_env_vars_keep_precedence_over_config():
     _reset_env("COGNEE_BASE_URL", "COGNEE_LOCAL_API_URL", "COGNEE_CODEX_BACKEND")
     _write_config({"backend": "http", "base_url": "http://from-config:8012"})
@@ -367,6 +377,7 @@ def test_json_output():
         "mode",
         "env_file",
         "server_url",
+        "dashboard_url",
         "api_key_source",
         "reachable",
         "latency_ms",
