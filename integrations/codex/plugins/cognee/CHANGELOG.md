@@ -10,6 +10,13 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.3+codex.20260731070128]
+
+### Fixed
+- Remote Codex and Hermes session capture now uses only
+  `/api/v1/improve/distill`; unavailable or failed distillation remains
+  retryable and never falls back to persisting the raw session document.
+
 ## [1.3.1]
 
 ### Fixed
