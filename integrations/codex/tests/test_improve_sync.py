@@ -119,7 +119,7 @@ def _run_session_improve(improve_result, *, drain_results=None):
     ``drain_results`` is an optional list of (drained, remaining) tuples returned
     per drain call, defaulting to a clean (0, 0).
     """
-    calls = {"drain": 0, "improve": 0, "legacy": 0}
+    calls = {"drain": 0, "improve": 0}
 
     def _drain(d, s):
         calls["drain"] += 1
@@ -135,9 +135,6 @@ def _run_session_improve(improve_result, *, drain_results=None):
         improve_session_via_http=lambda d, s, **k: (
             calls.__setitem__("improve", calls["improve"] + 1) or improve_result
         ),
-        persist_session_cache_to_graph_via_http=lambda d, s: (
-            calls.__setitem__("legacy", calls["legacy"] + 1) or True
-        ),
         hook_log=lambda *a, **k: None,
         _DRAIN_RETRY_PAUSE_SECONDS=0.0,
     )
@@ -151,20 +148,18 @@ def _run_session_improve(improve_result, *, drain_results=None):
 def test_run_session_improve_happy_path_drains_then_improves():
     wrote, calls = _run_session_improve({"ok": True})
     assert wrote is True
-    assert calls == {"drain": 1, "improve": 1, "legacy": 0}
+    assert calls == {"drain": 1, "improve": 1}
 
 
 def test_run_session_improve_does_not_fallback_when_endpoint_fails():
     wrote, calls = _run_session_improve({"ok": False, "status": 404, "error": "missing"})
     assert wrote is False
     assert calls["improve"] == 1
-    assert calls["legacy"] == 0
 
 
 def test_run_session_improve_error_returns_false_without_legacy():
     wrote, calls = _run_session_improve({"ok": False, "status": 500, "error": "boom"})
     assert wrote is False
-    assert calls["legacy"] == 0  # a transient server error is not an unsupported server
 
 
 def test_improve_lock_skip_reports_busy():
@@ -225,7 +220,6 @@ def test_incomplete_drain_returns_false_but_improve_still_runs():
     assert wrote is False
     assert calls["improve"] == 1  # improve ran despite the incomplete drain
     assert calls["drain"] == 2  # one in-place retry happened
-    assert calls["legacy"] == 0
 
 
 def test_drain_retry_recovers_and_sync_succeeds():

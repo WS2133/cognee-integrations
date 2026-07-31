@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.7+codex.20260801053119
+
+- Removed the unreachable raw-session document bridge now that the official
+  `/api/v1/improve` flow is required.
+
 All notable changes to the **cognee** Codex CLI plugin are documented here.
 
 The version here matches the `version` field in `.codex-plugin/plugin.json`. Note
