@@ -199,7 +199,7 @@ class TestUserKwarg(unittest.TestCase):
 
 
 class TestImproveBackgroundDecision(unittest.TestCase):
-    """Remote session end distills selectively; embedded mode retains SDK improve."""
+    """Session end uses the official SDK improve flow in every mode."""
 
     def _run_session_end(self, *, remote_mode, env_override=None):
         p, _ = _make_provider()
@@ -218,95 +218,19 @@ class TestImproveBackgroundDecision(unittest.TestCase):
         async def fake_improve(run_in_background=False):
             captured["bg"] = run_in_background
 
-        p._distill_remote = lambda: captured.__setitem__("distilled", True)
         p._do_improve = fake_improve
         p._is_breaker_open = lambda: False
         p.on_session_end([])
         return captured
 
-    def test_server_mode_uses_selective_distillation(self):
-        self.assertEqual(self._run_session_end(remote_mode=True), {"distilled": True})
+    def test_server_mode_runs_official_improve_synchronously(self):
+        self.assertFalse(self._run_session_end(remote_mode=True)["bg"])
 
     def test_embedded_mode_runs_synchronously(self):
         self.assertFalse(self._run_session_end(remote_mode=False)["bg"])
 
     def test_env_override_forces_background_in_embedded(self):
         self.assertTrue(self._run_session_end(remote_mode=False, env_override="true")["bg"])
-
-    def test_remote_distill_posts_only_dataset_and_session(self):
-        p, _ = _make_provider()
-        p._writes_enabled = True
-        p._improve_on_end = True
-        p._remote_mode = True
-        p._config = {
-            "improve_timeout": 300,
-            "service_url": "https://cognee.example/",
-            "api_key": "secret",
-        }
-        p._dataset = "pc2_bo_memory_v1"
-        p._session_cognee_id = "hermes_bo_s1"
-        p._is_breaker_open = lambda: False
-        captured = {}
-
-        def fake_urlopen(req, timeout=None):
-            captured["req"] = req
-            captured["timeout"] = timeout
-            return _FakeResp(
-                200,
-                b'{"status":"completed","accepted_count":1,"rejected_count":0}',
-            )
-
-        async def forbidden(*args, **kwargs):
-            self.fail("remote session end must not call SDK improve/remember")
-
-        p._do_improve = forbidden
-        p._do_remember_permanent = forbidden
-        with mock.patch.object(provider_mod.urllib.request, "urlopen", fake_urlopen):
-            p.on_session_end([])
-
-        req = captured["req"]
-        self.assertEqual(
-            req.full_url,
-            "https://cognee.example/api/v1/improve/distill",
-        )
-        self.assertEqual(req.headers["X-api-key"], "secret")
-        self.assertEqual(
-            provider_mod.json.loads(req.data),
-            {"dataset_name": "pc2_bo_memory_v1", "session_id": "hermes_bo_s1"},
-        )
-
-    def test_remote_distill_failures_never_call_raw_fallbacks(self):
-        for failure in (
-            urllib.error.HTTPError("https://cognee.example", 404, "missing", {}, None),
-            urllib.error.HTTPError("https://cognee.example", 409, "conflict", {}, None),
-            urllib.error.URLError("offline"),
-        ):
-            with self.subTest(failure=failure):
-                p, _ = _make_provider()
-                p._writes_enabled = True
-                p._improve_on_end = True
-                p._remote_mode = True
-                p._config = {
-                    "improve_timeout": 300,
-                    "service_url": "https://cognee.example",
-                    "api_key": "secret",
-                }
-                p._dataset = "pc2_bo_memory_v1"
-                p._session_cognee_id = "hermes_bo_s1"
-                p._is_breaker_open = lambda: False
-
-                async def forbidden(*args, **kwargs):
-                    self.fail("failed distillation must stay retryable without raw fallback")
-
-                p._do_improve = forbidden
-                p._do_remember_permanent = forbidden
-                with mock.patch.object(
-                    provider_mod.urllib.request,
-                    "urlopen",
-                    side_effect=failure,
-                ):
-                    p.on_session_end([])
-
 
 class TestConfigModes(unittest.TestCase):
     def test_base_url_preferred_over_service_url(self):

@@ -2109,8 +2109,6 @@ def persist_session_cache_to_graph_via_http(
 # the whole accumulated session text (raw tool outputs included) for a full
 # re-cognify on every sync. The legacy path is kept only as a fallback for
 # servers without session-aware improve.
-_IMPROVE_UNSUPPORTED_MARKER = _SHARED_PLUGIN_ROOT / "improve-unsupported.json"
-_IMPROVE_UNSUPPORTED_TTL_SECONDS = 24 * 3600
 
 
 def _improve_float_env(name: str, default: float) -> float:
@@ -2123,29 +2121,6 @@ def _improve_float_env(name: str, default: float) -> float:
 
 def _improve_submit_timeout() -> float:
     return _improve_float_env("COGNEE_IMPROVE_SUBMIT_TIMEOUT", 180.0)
-
-
-def mark_improve_unsupported(base_url: str) -> None:
-    """Record that this server lacks the session-aware improve endpoint."""
-    _write_json_file(
-        _IMPROVE_UNSUPPORTED_MARKER,
-        {
-            "base_url": _normalize_service_url(base_url),
-            "marked_at": datetime.now(timezone.utc).timestamp(),
-        },
-    )
-
-
-def improve_unsupported(base_url: str) -> bool:
-    """True if this server recently rejected the improve endpoint (TTL-bounded)."""
-    data = _load_json_file(_IMPROVE_UNSUPPORTED_MARKER)
-    if not data:
-        return False
-    marked_url = _normalize_service_url(str(data.get("base_url") or ""))
-    if marked_url and marked_url != _normalize_service_url(base_url):
-        return False
-    marked_at = float(data.get("marked_at", 0) or 0)
-    return datetime.now(timezone.utc).timestamp() - marked_at < _IMPROVE_UNSUPPORTED_TTL_SECONDS
 
 
 def append_warmup_entry(dataset: str, session_id: str, entry: dict) -> None:
@@ -2265,25 +2240,23 @@ def drain_warmup_entries(dataset: str, session_id: str) -> tuple:
 
 
 def improve_session_via_http(dataset: str, session_id: str, *, timeout: float = None) -> dict:
-    """Promote durable lessons via POST /api/v1/improve/distill.
-
-    The server reads its own session cache and stores only accepted durable
-    lessons. A 2xx response counts as success.
-    """
+    """Promote durable lessons through Cognee's official improve endpoint."""
     if not dataset or not session_id:
         return {"ok": False, "error": "missing dataset/session"}
     submit_timeout = timeout if timeout is not None else _improve_submit_timeout()
     try:
         result = _json_http_request(
-            "/api/v1/improve/distill",
-            {"dataset_name": dataset, "session_id": session_id},
+            "/api/v1/improve",
+            {
+                "datasetName": dataset,
+                "sessionIds": [session_id],
+                "runInBackground": False,
+            },
             timeout=submit_timeout,
         )
     except urllib.error.HTTPError as exc:
-        if exc.code in (404, 405, 422):
-            # Keep the session cache retryable until the selective endpoint exists.
-            mark_improve_unsupported(_local_api_url())
-            return {"ok": False, "unsupported": True, "status": exc.code}
+        if exc.code == 409:
+            return {"ok": False, "busy": True, "status": exc.code}
         return {"ok": False, "status": exc.code, "error": f"HTTP {exc.code}: {exc.reason}"}
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return {"ok": False, "status": 0, "error": str(exc)[:200]}
@@ -2383,13 +2356,8 @@ def _run_session_improve_locked(dataset: str, session_id: str) -> bool:
         # momentary blip, and improve reads only what reached the server cache.
         time.sleep(_DRAIN_RETRY_PAUSE_SECONDS)
         _, remaining = drain_warmup_entries(dataset, session_id)
-    if improve_unsupported(base_url):
-        return False
     ensure_dataset_via_http(dataset)
     outcome = improve_session_via_http(dataset, session_id)
-    if outcome.get("unsupported"):
-        hook_log("improve_unsupported", {"dataset": dataset, "session": session_id})
-        return False
     # Busy = another improve holds the session lock (e.g. an idle-watcher run
     # racing the SessionEnd sync). That run's snapshot may predate the latest
     # turns, so wait for the lock to free and re-submit; the retried improve

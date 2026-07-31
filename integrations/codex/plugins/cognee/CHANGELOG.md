@@ -10,6 +10,14 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.6+codex.20260801051250]
+
+### Fixed
+- Session improvement now uses Cognee's supported `/api/v1/improve` contract
+  with `datasetName`, `sessionIds`, and `runInBackground`.
+- HTTP 409 remains retryable instead of permanently disabling improvement.
+- Hermes server mode uses the same Cognee SDK improve path as embedded mode.
+
 ## [1.3.5+codex.20260801012024]
 
 ### Fixed
