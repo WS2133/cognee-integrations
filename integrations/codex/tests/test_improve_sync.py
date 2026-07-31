@@ -1,8 +1,8 @@
-"""Unit tests for the Codex session distillation bridge.
+"""Unit tests for the Codex session improvement bridge.
 
-The sync posts only the dataset and session ID to the selective distillation
-endpoint. Missing/failed endpoints remain retryable and never fall back to
-persisting the raw session document.
+The sync posts only the dataset and session ID to Cognee's official improve
+endpoint. Failures remain retryable and never fall back to persisting the raw
+session document.
 
 Run: python integrations/codex/tests/test_improve_sync.py (or via pytest).
 """
@@ -65,25 +65,24 @@ def test_improve_posts_expected_json_payload():
         urllib.request.urlopen = orig
 
     assert res["ok"] is True
-    assert captured["req"].full_url.endswith("/api/v1/improve/distill")
+    assert captured["req"].full_url.endswith("/api/v1/improve")
     body = json.loads(captured["req"].data.decode("utf-8"))
-    assert body == {"dataset_name": "ds", "session_id": "sid"}
+    assert body == {
+        "datasetName": "ds",
+        "sessionIds": ["sid"],
+        "runInBackground": False,
+    }
     assert captured["timeout"] >= 60
 
 
-def test_improve_404_marks_unsupported():
-    marker_writes = {}
+def test_improve_404_is_retryable_without_a_persistent_marker():
     orig = urllib.request.urlopen
 
     def _raise(req, timeout=None, **kwargs):
         raise urllib.error.HTTPError("http://x", 404, "Not Found", {}, None)
 
     urllib.request.urlopen = _raise
-    saved = _with_seams(
-        _local_api_url=lambda: "http://x",
-        _api_key=lambda: "k",
-        _write_json_file=lambda p, data: marker_writes.update({str(p): data}),
-    )
+    saved = _with_seams(_local_api_url=lambda: "http://x", _api_key=lambda: "k")
     try:
         res = pc.improve_session_via_http("ds", "sid")
     finally:
@@ -91,8 +90,8 @@ def test_improve_404_marks_unsupported():
         urllib.request.urlopen = orig
 
     assert res["ok"] is False
-    assert res["unsupported"] is True
-    assert any("improve-unsupported" in p for p in marker_writes)
+    assert res["status"] == 404
+    assert "error" in res
 
 
 def test_improve_network_error_is_graceful():
@@ -114,7 +113,7 @@ def test_improve_network_error_is_graceful():
     assert "error" in res
 
 
-def _run_session_improve(improve_result, *, unsupported_marker=False, drain_results=None):
+def _run_session_improve(improve_result, *, drain_results=None):
     """Drive run_session_improve with all seams mocked; return (result, calls).
 
     ``drain_results`` is an optional list of (drained, remaining) tuples returned
@@ -133,7 +132,6 @@ def _run_session_improve(improve_result, *, unsupported_marker=False, drain_resu
         _backend_reachable=lambda url: True,
         drain_warmup_entries=_drain,
         ensure_dataset_via_http=lambda d: None,
-        improve_unsupported=lambda url: unsupported_marker,
         improve_session_via_http=lambda d, s, **k: (
             calls.__setitem__("improve", calls["improve"] + 1) or improve_result
         ),
@@ -156,17 +154,10 @@ def test_run_session_improve_happy_path_drains_then_improves():
     assert calls == {"drain": 1, "improve": 1, "legacy": 0}
 
 
-def test_run_session_improve_does_not_fallback_when_endpoint_is_unsupported():
-    wrote, calls = _run_session_improve({"ok": False, "unsupported": True, "status": 404})
+def test_run_session_improve_does_not_fallback_when_endpoint_fails():
+    wrote, calls = _run_session_improve({"ok": False, "status": 404, "error": "missing"})
     assert wrote is False
     assert calls["improve"] == 1
-    assert calls["legacy"] == 0
-
-
-def test_run_session_improve_does_not_fallback_when_unsupported_marker_is_set():
-    wrote, calls = _run_session_improve({"ok": True}, unsupported_marker=True)
-    assert wrote is False
-    assert calls["improve"] == 0
     assert calls["legacy"] == 0
 
 
@@ -213,7 +204,6 @@ def test_run_session_improve_retries_busy_until_lock_frees():
         _local_api_url=lambda: "http://x",
         _backend_reachable=lambda url: True,
         drain_warmup_entries=lambda d, s: (0, 0),
-        improve_unsupported=lambda url: False,
         improve_session_via_http=_improve,
         hook_log=lambda *a, **k: None,
     )
@@ -268,7 +258,6 @@ def test_run_session_improve_busy_deadline_gives_up():
         _local_api_url=lambda: "http://x",
         _backend_reachable=lambda url: True,
         drain_warmup_entries=lambda d, s: (0, 0),
-        improve_unsupported=lambda url: False,
         improve_session_via_http=_always_busy,
         hook_log=lambda *a, **k: None,
     )
