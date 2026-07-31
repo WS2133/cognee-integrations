@@ -1,6 +1,6 @@
 {
   "name": "cognee",
-  "version": "1.3.3+codex.20260731070128",
+  "version": "1.3.4+codex.20260731174855",
   "description": "CLI-first Cognee workflows for memory, knowledge graphs, codebase ingestion, and local UI launch.",
   "author": {
     "name": "Topoteretes",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Cognee",
     "shortDescription": "Use Cognee from Codex with automatic memory capture and recall.",
-    "longDescription": "Reusable Codex skills for running Cognee's CLI workflows plus hooks that automatically capture Codex session starts, user prompts, tool results, and assistant stops into Cognee session memory, then recall relevant context on each prompt. This plugin intentionally does not configure MCP.",
+    "longDescription": "Reusable Codex skills plus hooks that automatically capture paired user prompts and final answers, selectively distill durable decisions and pain points, and recall relevant context on each prompt. This plugin intentionally does not configure MCP.",
     "developerName": "Topoteretes",
     "category": "Engineering",
     "capabilities": [

@@ -10,6 +10,12 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.4+codex.20260731174855]
+
+### Fixed
+- Remote API capture no longer depends on the short-lived local readiness marker.
+- Automatic capture stores paired prompts and final answers, not raw tool traces.
+
 ## [1.3.3+codex.20260731070128]
 
 ### Fixed

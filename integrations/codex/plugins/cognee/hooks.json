@@ -31,19 +31,6 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/store-to-session.py\"",
-            "timeout": 120,
-            "statusMessage": "Saving tool trace..."
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

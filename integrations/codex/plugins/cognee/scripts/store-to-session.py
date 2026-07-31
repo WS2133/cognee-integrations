@@ -176,7 +176,7 @@ async def _store_tool_call(payload: dict) -> None:
         "generate_feedback_with_llm": False,
     }
 
-    if not server_ready_hint(runtime.get("base_url", "")):
+    if not use_http and not server_ready_hint(runtime.get("base_url", "")):
         # Server still warming: don't block the tool call and don't lose the
         # trace. Buffer the structured entry for a later /remember/entry replay
         # (improve bridges only what the server session cache holds), and keep
@@ -279,7 +279,7 @@ async def _store_assistant_stop(payload: dict) -> None:
         "context": pending.get("context", ""),
     }
 
-    if not server_ready_hint(runtime.get("base_url", "")):
+    if not use_http and not server_ready_hint(runtime.get("base_url", "")):
         # Server still warming: buffer the structured entry for a later
         # /remember/entry replay (improve bridges only what the server session
         # cache holds), and keep the legacy text mirror for the document-bridge
