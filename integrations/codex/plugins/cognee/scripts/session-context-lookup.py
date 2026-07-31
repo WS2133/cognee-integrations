@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Search session + trace + agent guidance + graph for context relevant to the user's prompt.
+"""Search session + agent guidance + graph for context relevant to the user's prompt.
 
 Runs on the Codex UserPromptSubmit hook. Calls ``cognee.recall`` once per
-scope (``session``, ``trace``, ``session_context``, ``graph``) so every
-layer the SessionManager holds (QA entries, agent trace steps, standing
-agent guidance, and the graph knowledge built by ``improve()``) flows back
-into Codex's context.
+scope (``session``, ``session_context``, ``graph``) so durable session turns,
+standing agent guidance, and the graph knowledge built by ``improve()`` flow
+back into Codex's context.
 
 Configuration:
     Resolves session state via Cognee HTTP endpoints.
@@ -57,7 +56,6 @@ TOP_K = 5
 TRUNCATE_ANSWER = 500
 TRUNCATE_RETURN = 400
 TRUNCATE_GRAPH_CTX = 1500
-RECENT_TRACE_FALLBACK_TOP_K = 5
 # Smallest per-scope timeout worth dispatching; with less budget than this
 # left, remaining scopes are skipped rather than fired with a doomed deadline.
 MIN_SCOPE_TIMEOUT = 0.2
@@ -130,41 +128,6 @@ def _has_entry_content(entry: dict) -> bool:
     else:
         fields = ("question", "answer")
     return any(str(entry.get(field, "") or "").strip() for field in fields)
-
-
-async def _recent_trace_fallback(session_id: str, user_id: str, top_k: int) -> list[dict]:
-    """Return recent trace rows directly when semantic trace recall misses.
-
-    Tool calls are chronological session context, not only semantic context. A
-    casual next prompt often will not match the words in a tool output, but the
-    agent still needs to see the recent tool calls it just made.
-    """
-    try:
-        from cognee.infrastructure.session.get_session_manager import get_session_manager
-
-        sm = get_session_manager()
-        if not sm.is_available or not user_id:
-            return []
-        raw_trace = await sm.get_agent_trace_session(user_id=user_id, session_id=session_id)
-        entries = list(raw_trace or [])[-top_k:]
-    except Exception as exc:
-        hook_log("trace_fallback_error", {"error": str(exc)[:200]})
-        return []
-
-    normalized: list[dict] = []
-    for entry in entries:
-        if hasattr(entry, "model_dump"):
-            entry = entry.model_dump()
-        elif hasattr(entry, "dict"):
-            entry = entry.dict()
-        elif hasattr(entry, "__dict__"):
-            entry = dict(entry.__dict__)
-        if not isinstance(entry, dict):
-            continue
-        entry["source"] = "trace"
-        if _has_entry_content(entry):
-            normalized.append(entry)
-    return normalized
 
 
 async def _run(prompt: str) -> dict | None:
@@ -246,7 +209,6 @@ async def _run(prompt: str) -> dict | None:
     # completion is skipped server-side either way).
     scope_specs = [
         (["session"], None, None),
-        (["trace"], None, None),
         (["session_context"], None, "agent"),
         (["graph"], "HYBRID_COMPLETION", None),
     ]
@@ -271,8 +233,8 @@ async def _run(prompt: str) -> dict | None:
     # Hard time-box: this hook is on the keystroke->answer path, so recall must
     # never be the long pole. Each scope gets a short per-call timeout, and the
     # whole loop stops once the overall budget is spent. Partial results are fine.
-    recall_timeout = _float_env("COGNEE_RECALL_TIMEOUT", 2.5)
-    budget_deadline = time.monotonic() + _float_env("COGNEE_RECALL_BUDGET", 4.0)
+    recall_timeout = _float_env("COGNEE_RECALL_TIMEOUT", 5.0)
+    budget_deadline = time.monotonic() + _float_env("COGNEE_RECALL_BUDGET", 6.0)
     # Respect the shared circuit breaker: when the server has been failing (tripped
     # by the explicit recall path), skip this per-prompt recall rather than hammering
     # a down backend on every keystroke. HTTP/cloud mode only.
@@ -363,16 +325,6 @@ async def _run(prompt: str) -> dict | None:
         if not _has_entry_content(r):
             continue
         by_source.setdefault(src, []).append(r)
-
-    if not cloud_mode and not by_source.get("trace"):
-        fallback_traces = await _recent_trace_fallback(
-            session_id,
-            _load_user_id(),
-            RECENT_TRACE_FALLBACK_TOP_K,
-        )
-        if fallback_traces:
-            by_source["trace"].extend(fallback_traces)
-            hook_log("trace_fallback_hit", {"count": len(fallback_traces)})
 
     counts = {k: len(v) for k, v in by_source.items()}
     total = sum(counts.values())

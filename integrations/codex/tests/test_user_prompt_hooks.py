@@ -21,6 +21,7 @@ def _load_script(name):
 
 def test_context_output_uses_codex_schema(tmp_path, monkeypatch):
     module = _load_script("session-context-lookup.py")
+    recalled_scopes = []
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr(module, "load_config", lambda: {})
     monkeypatch.setattr(module, "resolve_runtime_mode", lambda: {"mode": "http", "base_url": ""})
@@ -31,7 +32,11 @@ def test_context_output_uses_codex_schema(tmp_path, monkeypatch):
         "read_and_reset_save_counter",
         lambda _session: {"prompt": 0, "trace": 0, "answer": 0},
     )
-    monkeypatch.setattr(module, "recall_via_http", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "recall_via_http",
+        lambda *args, **kwargs: recalled_scopes.append(kwargs["scope"]) or [],
+    )
     monkeypatch.setattr(module, "render_status_for_host", lambda _session: "Cognee")
 
     output = asyncio.run(module._run("remember this"))
@@ -39,6 +44,7 @@ def test_context_output_uses_codex_schema(tmp_path, monkeypatch):
     assert output["systemMessage"].startswith("Cognee")
     assert "systemMessage" not in output["hookSpecificOutput"]
     assert output["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert recalled_scopes == [["session"], ["session_context"], ["graph"]]
 
 
 def test_noop_hooks_emit_valid_user_prompt_submit_json(tmp_path):
