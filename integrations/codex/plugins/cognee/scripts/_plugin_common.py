@@ -999,6 +999,16 @@ def remember_pending_prompt(
     _write_json_file(_pending_file(session_id), data)
 
 
+def has_pending_prompt(session_id: str) -> bool:
+    """Return whether this agent session is waiting for its Stop answer."""
+    if not session_id:
+        return False
+    data = _load_json_file(_pending_file(session_id))
+    _, session_key = _pending_keys(session_id)
+    entry = data.get(session_key)
+    return isinstance(entry, dict) and bool(str(entry.get("prompt") or "").strip())
+
+
 def pop_pending_prompt(session_id: str, *, turn_id: str = "") -> dict:
     """Return and remove the prompt saved for this Codex turn."""
     if not session_id:

@@ -82,6 +82,18 @@ def _install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, _handler)
 
 
+def _pending_turn_exists(session_id: str, config: dict) -> bool:
+    sys.path.insert(0, os.path.dirname(__file__))
+    try:
+        from _plugin_common import has_pending_prompt, set_session_key  # type: ignore
+
+        set_session_key(str(config.get("session_key") or ""))
+        return has_pending_prompt(session_id)
+    except Exception as exc:
+        _log("pending_turn_check_failed", error=str(exc)[:200])
+        return False
+
+
 async def _improve_once(session_id: str, dataset: str, config: dict) -> bool:
     """Fire one session improve cycle. Returns True on success."""
     sys.path.insert(0, os.path.dirname(__file__))
@@ -310,6 +322,7 @@ async def _main_loop(session_id: str, dataset: str, config: dict) -> None:
             not bridge_disabled
             and idle_for >= IDLE_SECONDS
             and time_since_improve >= IMPROVE_COOLDOWN
+            and not _pending_turn_exists(session_id, config)
         ):
             _log("idle_trigger", idle_for=round(idle_for, 1))
             ok = await _improve_once(session_id, dataset, config)

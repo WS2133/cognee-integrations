@@ -81,7 +81,7 @@ def test_lock_released_even_when_body_raises():
         assert b is True, "a crashing improve must not wedge the session"
 
 
-def test_dead_holder_lock_is_reclaimed():
+def test_dead_holder_lock_is_reclaimed(monkeypatch):
     """A crashed worker's lock must not strand the session forever."""
     tmp = pathlib.Path(tempfile.mkdtemp())
     c = _fresh_common(tmp)
@@ -94,12 +94,12 @@ def test_dead_holder_lock_is_reclaimed():
     # dead-pid branch must be what clears it. pid_alive is stubbed rather than
     # guessing an unused pid, so the test can't flake on a recycled pid.
     p.write_text(json.dumps({"owner": "dead", "pid": 4242, "created_at": 9e9}))
-    c._proc.pid_alive = lambda pid: False
+    monkeypatch.setattr(c._proc, "pid_alive", lambda pid: False)
     with c.improve_session_lock("sess-A", "reclaimer") as claimed:
         assert claimed is True, "stale lock from a dead pid must be reclaimed"
 
 
-def test_live_holder_lock_is_not_stolen():
+def test_live_holder_lock_is_not_stolen(monkeypatch):
     """The reclaim path must not evict a lock whose owner is still running."""
     tmp = pathlib.Path(tempfile.mkdtemp())
     c = _fresh_common(tmp)
@@ -112,7 +112,7 @@ def test_live_holder_lock_is_not_stolen():
 
     now = _dt.datetime.now(_dt.timezone.utc).timestamp()
     p.write_text(json.dumps({"owner": "live", "pid": 4242, "created_at": now}))
-    c._proc.pid_alive = lambda pid: True
+    monkeypatch.setattr(c._proc, "pid_alive", lambda pid: True)
     with c.improve_session_lock("sess-A", "intruder") as claimed:
         assert claimed is False, "a live holder's lock must be respected"
 

@@ -44,6 +44,7 @@ class _Mode:
             sl._CONN_STATE_DIR,
         )
         self._orig_url = os.environ.get("COGNEE_BASE_URL")
+        self._orig_dataset = os.environ.get("COGNEE_PLUGIN_DATASET")
         sl._CONFIG_PATH = self._dir / "config.json"
         sl._SERVER_READY_PATH = self._dir / "server-ready.json"
         sl._BREAKER_PATH = self._dir / "recall-breaker.json"
@@ -51,6 +52,7 @@ class _Mode:
         sl._LLM_STATE_DIR = self._dir / "llm-state"
         sl._CONN_STATE_DIR = self._dir / "conn-state"
         os.environ["COGNEE_BASE_URL"] = self._base_url
+        os.environ.pop("COGNEE_PLUGIN_DATASET", None)
         return self
 
     def __exit__(self, *_exc):
@@ -66,6 +68,10 @@ class _Mode:
             os.environ.pop("COGNEE_BASE_URL", None)
         else:
             os.environ["COGNEE_BASE_URL"] = self._orig_url
+        if self._orig_dataset is None:
+            os.environ.pop("COGNEE_PLUGIN_DATASET", None)
+        else:
+            os.environ["COGNEE_PLUGIN_DATASET"] = self._orig_dataset
         shutil.rmtree(self._dir, ignore_errors=True)
         return False
 

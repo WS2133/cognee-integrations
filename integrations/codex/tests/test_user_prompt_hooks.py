@@ -3,6 +3,7 @@
 import asyncio
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -56,7 +57,11 @@ def test_noop_hooks_emit_valid_user_prompt_submit_json(tmp_path):
             text=True,
             capture_output=True,
             check=True,
-            env={"HOME": str(tmp_path), "PATH": str(pathlib.Path(sys.executable).parent)},
+            env={
+                **os.environ,
+                "HOME": str(tmp_path),
+                "PATH": str(pathlib.Path(sys.executable).parent),
+            },
         )
         output = json.loads(result.stdout)
         assert output["hookSpecificOutput"] == {

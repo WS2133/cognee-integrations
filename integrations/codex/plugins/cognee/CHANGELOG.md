@@ -10,6 +10,16 @@ is the cache key and semver record, bumped on each release, not the update trigg
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.5+codex.20260801012024]
+
+### Fixed
+- Retryable remote capture failures are buffered locally and replayed instead
+  of dropping the completed answer.
+- Idle sync waits for the current answer, and the redundant `PreCompact` sync
+  no longer races the `Stop` write.
+- Windows uses the native `SessionEnd` hook instead of unregistering an active
+  task when the short-lived hook host exits.
+
 ## [1.3.4+codex.20260731174855]
 
 ### Fixed

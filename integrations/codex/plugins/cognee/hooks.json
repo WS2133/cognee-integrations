@@ -43,18 +43,6 @@
         ]
       }
     ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/pre-compact.py\"",
-            "timeout": 120,
-            "statusMessage": "Building memory anchor..."
-          }
-        ]
-      }
-    ],
     "SessionEnd": [
       {
         "hooks": [

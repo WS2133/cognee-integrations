@@ -1241,14 +1241,17 @@ async def _start(payload: dict | None = None) -> dict:
     ):
         _spawn_idle_watcher(session_id, dataset, user_id, config, session_key)
 
-    _spawn_exit_watcher(
-        session_id,
-        dataset,
-        session_key=session_key,
-        agent_session_name=agent_session_name,
-        api_key=agent_api_key,
-        service_url=str(config.get("base_url", "") or ""),
-    )
+    # Codex Desktop's Windows hook host is short-lived; watching it unregisters
+    # a still-open task. The native SessionEnd hook and idle sync own shutdown.
+    if sys.platform != "win32":
+        _spawn_exit_watcher(
+            session_id,
+            dataset,
+            session_key=session_key,
+            agent_session_name=agent_session_name,
+            api_key=agent_api_key,
+            service_url=str(config.get("base_url", "") or ""),
+        )
 
     mode = "cloud" if config.get("base_url") else "local"
     print(

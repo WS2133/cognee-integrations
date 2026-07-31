@@ -84,12 +84,15 @@ def test_trailing_slash_and_whitespace_do_not_split_a_target():
 # ── the premise: the hook's service_url is never empty ────────────────────
 
 
-def test_runtime_base_url_is_never_empty():
+def test_runtime_base_url_is_never_empty(monkeypatch):
     """A false red during local warm-up needs service_url == ""; resolution prevents it."""
+    import config
+
     saved = {k: os.environ.get(k) for k in ("COGNEE_LOCAL_API_URL", "COGNEE_BASE_URL")}
     try:
         for k in saved:
             os.environ.pop(k, None)
+        monkeypatch.setattr(config, "load_config", lambda: {})
         resolved = pc.resolve_runtime_mode()
         assert resolved["base_url"], "empty base_url would make the warming heuristic ambiguous"
         # Asserted against the constant rather than a `url_source` tag, which only the

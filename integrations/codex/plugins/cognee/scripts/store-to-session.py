@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import sys
+import urllib.error
 
 # Add scripts dir to path for helper imports
 sys.path.insert(0, os.path.dirname(__file__))
@@ -97,6 +98,12 @@ def _truncate_str(value, cap: int) -> str:
     if len(encoded) <= cap:
         return text
     return encoded[: cap - 3].decode("utf-8", errors="ignore") + "..."
+
+
+def _retryable_http_error(exc: Exception) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in (408, 409, 425, 429) or 500 <= exc.code < 600
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, OSError))
 
 
 def _infer_status(payload: dict) -> tuple[str, str]:
@@ -314,6 +321,20 @@ async def _store_assistant_stop(payload: dict) -> None:
                 user=user,
             )
     except Exception as exc:
+        if use_http and _retryable_http_error(exc):
+            append_warmup_entry(dataset, session_id, entry)
+            append_http_bridge_entry(
+                dataset,
+                session_id,
+                question=pending.get("prompt", ""),
+                answer=msg,
+            )
+            bump_save_counter(session_id, "answer")
+            hook_log(
+                "store_buffered_retryable_error",
+                {"hook": "stop", "status": getattr(exc, "code", 0)},
+            )
+            return
         hook_log("stop_store_error", {"error": str(exc)[:200]})
         notify(f"stop store failed ({exc})")
         return
