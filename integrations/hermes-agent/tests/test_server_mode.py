@@ -207,8 +207,11 @@ class TestCurrentQueryPrefetch(unittest.TestCase):
         p._session_cognee_id = "hermes_sid"
         seen = {}
 
-        async def fake_recall(query, search_type, top_k, scope, session_id):
+        async def fake_recall(
+            query, search_type, top_k, scope, session_id, only_context=False
+        ):
             seen["query"] = query
+            seen["only_context"] = only_context
             return [{"text": "PostgreSQL owns structured records", "source": "cognee"}]
 
         p._do_recall = fake_recall
@@ -218,6 +221,7 @@ class TestCurrentQueryPrefetch(unittest.TestCase):
             p._bridge.shutdown()
 
         self.assertEqual(seen.get("query"), "What owns structured records?")
+        self.assertTrue(seen.get("only_context"))
         self.assertIn("PostgreSQL owns structured records", result)
 
 

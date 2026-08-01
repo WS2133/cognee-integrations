@@ -367,7 +367,14 @@ class CogneeMemoryProvider(MemoryProvider):
         cognee_session_id = self._session_cognee_id_for(session_id)
         try:
             results = self._bridge.run(
-                self._do_recall(query, None, min(self._top_k, 5), "auto", cognee_session_id),
+                self._do_recall(
+                    query,
+                    None,
+                    min(self._top_k, 5),
+                    "auto",
+                    cognee_session_id,
+                    only_context=True,
+                ),
                 timeout=min(float(self._config.get("recall_timeout", 120)), 8.0),
             )
             self._record_success()
@@ -607,12 +614,14 @@ class CogneeMemoryProvider(MemoryProvider):
         top_k: int,
         scope: str,
         session_id: str,
+        only_context: bool = False,
     ) -> list[Any]:
         import cognee
 
         kwargs: dict[str, Any] = {
             "top_k": top_k,
             "auto_route": self._auto_route,
+            "only_context": only_context,
         }
         self._add_user_kwarg(kwargs)
 
