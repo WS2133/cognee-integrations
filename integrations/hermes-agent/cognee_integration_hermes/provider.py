@@ -138,9 +138,6 @@ class CogneeMemoryProvider(MemoryProvider):
         self._improve_on_end = True
         self._writes_enabled = True
         self._hermes_home: str | None = None
-        self._prefetch_result = ""
-        self._prefetch_lock = threading.Lock()
-        self._prefetch_thread: Optional[threading.Thread] = None
         self._sync_thread: Optional[threading.Thread] = None
         self._consecutive_failures = 0
         self._breaker_open_until = 0.0
@@ -365,42 +362,23 @@ class CogneeMemoryProvider(MemoryProvider):
         )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        if self._prefetch_thread and self._prefetch_thread.is_alive():
-            self._prefetch_thread.join(timeout=3.0)
-        with self._prefetch_lock:
-            result = self._prefetch_result
-            self._prefetch_result = ""
-        if not result:
-            return ""
-        return f"## Cognee Memory\n{result}"
-
-    def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         if not query or self._is_breaker_open():
-            return
-
+            return ""
         cognee_session_id = self._session_cognee_id_for(session_id)
-
-        def _run() -> None:
-            try:
-                results = self._bridge.run(
-                    self._do_recall(query, None, min(self._top_k, 5), "auto", cognee_session_id),
-                    timeout=float(self._config.get("recall_timeout", 120)),
-                )
-                lines = self._format_recall_lines(results, limit=5)
-                if lines:
-                    with self._prefetch_lock:
-                        self._prefetch_result = "\n".join(lines)
-                self._record_success()
-            except Exception as exc:
-                self._record_failure()
-                logger.debug("Cognee prefetch failed: %s", exc)
-
-        self._prefetch_thread = threading.Thread(
-            target=_run,
-            daemon=True,
-            name="cognee-hermes-prefetch",
-        )
-        self._prefetch_thread.start()
+        try:
+            results = self._bridge.run(
+                self._do_recall(query, None, min(self._top_k, 5), "auto", cognee_session_id),
+                timeout=min(float(self._config.get("recall_timeout", 120)), 8.0),
+            )
+            self._record_success()
+        except Exception as exc:
+            self._record_failure()
+            logger.debug("Cognee prefetch failed: %s", exc)
+            return ""
+        lines = self._format_recall_lines(results, limit=5)
+        if not lines:
+            return ""
+        return "## Cognee Memory\n" + "\n".join(lines)
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
         if not self._writes_enabled or self._is_breaker_open():
@@ -480,9 +458,6 @@ class CogneeMemoryProvider(MemoryProvider):
             self._sync_thread.join(timeout=5.0)
         self._session_id = new_session_id
         self._session_cognee_id = self._build_cognee_session_id(new_session_id, **kwargs)
-        if reset:
-            with self._prefetch_lock:
-                self._prefetch_result = ""
 
     def on_memory_write(
         self,
@@ -524,9 +499,8 @@ class CogneeMemoryProvider(MemoryProvider):
         self.sync_turn(content, "", session_id=self._session_id)
 
     def shutdown(self) -> None:
-        for thread in (self._prefetch_thread, self._sync_thread):
-            if thread and thread.is_alive():
-                thread.join(timeout=5.0)
+        if self._sync_thread and self._sync_thread.is_alive():
+            self._sync_thread.join(timeout=5.0)
         if self._remote_mode:
             try:
                 self._bridge.run(self._do_disconnect(), timeout=5)

@@ -7,7 +7,6 @@ serve/identity coroutines, so the tests exercise pure routing logic.
 
 import sys
 import unittest
-import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -196,6 +195,30 @@ class TestUserKwarg(unittest.TestCase):
         kwargs = {}
         p._add_user_kwarg(kwargs)
         self.assertNotIn("user", kwargs)
+
+
+class TestCurrentQueryPrefetch(unittest.TestCase):
+    def test_first_turn_recalls_the_current_query(self):
+        p, _ = _make_provider()
+        p._initialized = True
+        p._config = {"recall_timeout": 2}
+        p._top_k = 5
+        p._session_id = "sid"
+        p._session_cognee_id = "hermes_sid"
+        seen = {}
+
+        async def fake_recall(query, search_type, top_k, scope, session_id):
+            seen["query"] = query
+            return [{"text": "PostgreSQL owns structured records", "source": "cognee"}]
+
+        p._do_recall = fake_recall
+        try:
+            result = p.prefetch("What owns structured records?", session_id="sid")
+        finally:
+            p._bridge.shutdown()
+
+        self.assertEqual(seen.get("query"), "What owns structured records?")
+        self.assertIn("PostgreSQL owns structured records", result)
 
 
 class TestImproveBackgroundDecision(unittest.TestCase):
