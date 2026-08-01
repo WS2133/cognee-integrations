@@ -8,6 +8,7 @@ import json
 import logging
 import threading
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 _BREAKER_THRESHOLD = 5
 _BREAKER_COOLDOWN_SECS = 120
+_PREFETCH_MAX_CHARS = 2200
 
 
 class _AsyncBridge:
@@ -369,7 +371,7 @@ class CogneeMemoryProvider(MemoryProvider):
             results = self._bridge.run(
                 self._do_recall(
                     query,
-                    None,
+                    "CHUNKS",
                     min(self._top_k, 5),
                     "auto",
                     cognee_session_id,
@@ -385,7 +387,7 @@ class CogneeMemoryProvider(MemoryProvider):
         lines = self._format_recall_lines(results, limit=5)
         if not lines:
             return ""
-        return "## Cognee Memory\n" + "\n".join(lines)
+        return ("## Cognee Memory\n" + "\n".join(lines))[:_PREFETCH_MAX_CHARS]
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
         if not self._writes_enabled or self._is_breaker_open():
@@ -620,7 +622,7 @@ class CogneeMemoryProvider(MemoryProvider):
 
         kwargs: dict[str, Any] = {
             "top_k": top_k,
-            "auto_route": self._auto_route,
+            "auto_route": self._auto_route if not search_type else False,
             "only_context": only_context,
         }
         self._add_user_kwarg(kwargs)
@@ -682,17 +684,43 @@ class CogneeMemoryProvider(MemoryProvider):
         return await cognee.forget(**kwargs)
 
     async def _do_improve(self, run_in_background: bool = False):
-        # Default stays False (synchronous) so the method contract is unchanged for
-        # any caller that relies on completion. on_session_end() chooses the flag.
-        import cognee
+        # Distillation is deliberately synchronous: it promotes only durable lessons
+        # and never copies the raw session Q&A into the permanent graph.
+        _ = run_in_background
+        if self._remote_mode:
+            def _post_distill() -> dict[str, Any]:
+                payload = json.dumps(
+                    {
+                        "dataset_name": self._dataset,
+                        "session_id": self._session_cognee_id,
+                    }
+                ).encode("utf-8")
+                headers = {"Content-Type": "application/json"}
+                api_key = str(self._config.get("api_key") or "")
+                if api_key:
+                    headers["X-Api-Key"] = api_key
+                service_url = str(self._config.get("service_url") or "").rstrip("/")
+                request = urllib.request.Request(
+                    f"{service_url}/api/v1/improve/distill",
+                    data=payload,
+                    headers=headers,
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=300) as response:
+                    body = response.read().decode("utf-8")
+                    return json.loads(body) if body else {}
 
-        kwargs: dict[str, Any] = {
-            "dataset": self._dataset,
-            "session_ids": [self._session_cognee_id],
-            "run_in_background": run_in_background,
-        }
+            return await asyncio.to_thread(_post_distill)
+
+        from cognee.modules.session_distillation import distill_session
+
+        kwargs: dict[str, Any] = {}
         self._add_user_kwarg(kwargs)
-        return await cognee.improve(**kwargs)
+        return await distill_session(
+            self._session_cognee_id,
+            dataset=self._dataset,
+            **kwargs,
+        )
 
     def _handle_recall(self, args: dict[str, Any]) -> str:
         query = str(args.get("query") or "").strip()
@@ -778,7 +806,7 @@ class CogneeMemoryProvider(MemoryProvider):
             if not text:
                 continue
             source = normalized.get("source", "cognee")
-            lines.append(f"- [{source}] {text[:500]}")
+            lines.append(f"- [{source}] {text[:_PREFETCH_MAX_CHARS]}")
         return lines
 
     def _embedding_dimension_mismatch_hint(self) -> Optional[str]:

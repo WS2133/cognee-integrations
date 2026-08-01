@@ -12,7 +12,7 @@ if _SCRIPTS_DIR not in sys.path:
 import _plugin_common  # noqa: E402
 
 
-def test_session_improve_uses_official_endpoint_and_payload():
+def test_session_improve_uses_selective_endpoint_and_payload():
     with mock.patch.object(
         _plugin_common,
         "_json_http_request",
@@ -21,11 +21,10 @@ def test_session_improve_uses_official_endpoint_and_payload():
         result = _plugin_common.improve_session_via_http("pc1_will_memory", "session-1")
 
     request.assert_called_once_with(
-        "/api/v1/improve",
+        "/api/v1/improve/distill",
         {
-            "datasetName": "pc1_will_memory",
-            "sessionIds": ["session-1"],
-            "runInBackground": False,
+            "dataset_name": "pc1_will_memory",
+            "session_id": "session-1",
         },
         timeout=mock.ANY,
     )
@@ -38,3 +37,14 @@ def test_session_improve_treats_conflict_as_retryable_busy():
         result = _plugin_common.improve_session_via_http("pc1_will_memory", "session-1")
 
     assert result == {"ok": False, "busy": True, "status": 409}
+
+
+def test_session_improve_treats_in_progress_as_retryable_busy():
+    with mock.patch.object(
+        _plugin_common,
+        "_json_http_request",
+        return_value={"status": "in_progress", "accepted_count": 0, "rejected_count": 0},
+    ):
+        result = _plugin_common.improve_session_via_http("pc1_will_memory", "session-1")
+
+    assert result == {"ok": False, "busy": True}

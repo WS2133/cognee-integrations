@@ -1962,9 +1962,7 @@ def _backend_reachable(base_url: str, timeout: float = 1.5) -> bool:
 
 # --- Session improve (server-side session->graph bridge) ----------------------
 # The hooks write every turn into the SERVER session cache via /remember/entry,
-# so the server can bridge a session itself: POST /api/v1/improve runs feedback
-# weights, QA persist, trace-feedback persist, distillation, and enrichment over
-# that cache. Raw session documents are never posted as permanent graph data.
+# so the server can distill a session itself without copying raw Q&A into the graph.
 
 
 def _improve_float_env(name: str, default: float) -> float:
@@ -2096,18 +2094,14 @@ def drain_warmup_entries(dataset: str, session_id: str) -> tuple:
 
 
 def improve_session_via_http(dataset: str, session_id: str, *, timeout: float = None) -> dict:
-    """Promote durable lessons through Cognee's official improve endpoint."""
+    """Promote durable lessons without persisting the raw session transcript."""
     if not dataset or not session_id:
         return {"ok": False, "error": "missing dataset/session"}
     submit_timeout = timeout if timeout is not None else _improve_submit_timeout()
     try:
         result = _json_http_request(
-            "/api/v1/improve",
-            {
-                "datasetName": dataset,
-                "sessionIds": [session_id],
-                "runInBackground": False,
-            },
+            "/api/v1/improve/distill",
+            {"dataset_name": dataset, "session_id": session_id},
             timeout=submit_timeout,
         )
     except urllib.error.HTTPError as exc:
@@ -2117,7 +2111,9 @@ def improve_session_via_http(dataset: str, session_id: str, *, timeout: float = 
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return {"ok": False, "status": 0, "error": str(exc)[:200]}
 
-    if isinstance(result, dict) and not result:
+    if isinstance(result, dict) and (
+        not result or result.get("status") == "in_progress"
+    ):
         # The server's per-session improve lock skipped this run ({} response):
         # another improve is in flight. That run may have extracted the session
         # cache BEFORE the latest turns landed, so a skip is NOT success — the

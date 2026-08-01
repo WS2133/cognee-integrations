@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.8+codex.20260801210028
+
+- Automatic Codex and Hermes session finalization now calls the selective
+  `/api/v1/improve/distill` route, so only durable decisions, constraints,
+  corrections, outcomes, pain points, preferences, and open questions enter the
+  permanent graph. Raw Q&A remains session-local.
+
 ## 1.3.7+codex.20260801053119
 
 - Removed the unreachable raw-session document bridge now that the official

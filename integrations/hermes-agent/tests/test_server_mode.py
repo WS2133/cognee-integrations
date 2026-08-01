@@ -5,6 +5,8 @@ these need cognee installed — the provider imports it lazily and we stub the
 serve/identity coroutines, so the tests exercise pure routing logic.
 """
 
+import asyncio
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -211,8 +213,14 @@ class TestCurrentQueryPrefetch(unittest.TestCase):
             query, search_type, top_k, scope, session_id, only_context=False
         ):
             seen["query"] = query
+            seen["search_type"] = search_type
             seen["only_context"] = only_context
-            return [{"text": "PostgreSQL owns structured records", "source": "cognee"}]
+            return [
+                {
+                    "text": "front matter " + ("x" * 700) + " PostgreSQL owns structured records",
+                    "source": "cognee",
+                }
+            ]
 
         p._do_recall = fake_recall
         try:
@@ -221,12 +229,14 @@ class TestCurrentQueryPrefetch(unittest.TestCase):
             p._bridge.shutdown()
 
         self.assertEqual(seen.get("query"), "What owns structured records?")
+        self.assertEqual(seen.get("search_type"), "CHUNKS")
         self.assertTrue(seen.get("only_context"))
         self.assertIn("PostgreSQL owns structured records", result)
+        self.assertLessEqual(len(result), 2200)
 
 
 class TestImproveBackgroundDecision(unittest.TestCase):
-    """Session end uses the official SDK improve flow in every mode."""
+    """Session end triggers one selective distillation in every mode."""
 
     def _run_session_end(self, *, remote_mode, env_override=None):
         p, _ = _make_provider()
@@ -250,7 +260,7 @@ class TestImproveBackgroundDecision(unittest.TestCase):
         p.on_session_end([])
         return captured
 
-    def test_server_mode_runs_official_improve_synchronously(self):
+    def test_server_mode_runs_distill_synchronously(self):
         self.assertFalse(self._run_session_end(remote_mode=True)["bg"])
 
     def test_embedded_mode_runs_synchronously(self):
@@ -258,6 +268,36 @@ class TestImproveBackgroundDecision(unittest.TestCase):
 
     def test_env_override_forces_background_in_embedded(self):
         self.assertTrue(self._run_session_end(remote_mode=False, env_override="true")["bg"])
+
+
+class TestSelectiveDistillRequest(unittest.TestCase):
+    def test_remote_session_end_uses_distill_endpoint(self):
+        p, _ = _make_provider()
+        p._remote_mode = True
+        p._dataset = "pc1_will_memory"
+        p._session_cognee_id = "hermes_session-1"
+        p._config = {
+            "service_url": "https://cognee.example",
+            "api_key": "secret",
+        }
+        response = _FakeResp(
+            200,
+            b'{"status":"completed","accepted_count":1,"rejected_count":0}',
+        )
+
+        with mock.patch.object(
+            provider_mod.urllib.request, "urlopen", return_value=response
+        ) as urlopen:
+            result = asyncio.run(p._do_improve())
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://cognee.example/api/v1/improve/distill")
+        self.assertEqual(request.get_header("X-api-key"), "secret")
+        self.assertEqual(
+            json.loads(request.data),
+            {"dataset_name": "pc1_will_memory", "session_id": "hermes_session-1"},
+        )
+        self.assertEqual(result["accepted_count"], 1)
 
 class TestConfigModes(unittest.TestCase):
     def test_base_url_preferred_over_service_url(self):
