@@ -135,8 +135,8 @@ Built on cognee v1.0, the integrations share the same two tiers:
 
 - **Permanent knowledge graph** — durable memory that survives across sessions.
 - **Session cache** — a cheap per-session cache (no graph extraction up front) that is
-  promoted into the permanent graph on sync (`/cognee-memory:cognee-sync`, or
-  `cognee.improve(session_ids=[...])` in the SDK integrations).
+  selectively distilled into the permanent graph on sync. General SDK integrations
+  can still call `cognee.improve(...)` for non-session data.
 
 ## Using the Python Integrations
 

@@ -150,7 +150,7 @@ Data added outside of Claude to the dataset (via SDK or the server for example) 
 
 ## Session sync and watchers
 
-Session→graph sync runs through Cognee's session-aware `improve` endpoint: the server bridges the session from its own session cache (feedback weights, Q&A persist, compact trace-feedback persist, distillation, enrichment) instead of the plugin re-posting the full accumulated session text — which used to trigger a complete re-cognify of the whole transcript on every sync. Servers without session-aware improve automatically fall back to the legacy document bridge.
+Session→graph sync calls `/api/v1/improve/distill`. The server reads the session cache and writes only durable decisions, constraints, corrections, outcomes, pain points, preferences, and open questions. Raw Q&A remains session-local, and failed distillation stays retryable instead of falling back to a raw-document upload.
 
 An idle watcher runs in the background for the lifetime of each launch. It polls activity every `COGNEE_IDLE_POLL` seconds and fires an improve when the session has been quiet for `COGNEE_IDLE_THRESHOLD` seconds and no prompt is waiting for its answer, then waits at least `COGNEE_IMPROVE_COOLDOWN` seconds before the next run. An automatic improve also fires every `COGNEE_AUTO_IMPROVE_EVERY` stored answers.
 

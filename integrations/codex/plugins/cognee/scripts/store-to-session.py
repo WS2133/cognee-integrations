@@ -59,8 +59,8 @@ _MAX_ASSISTANT_BYTES = 8000
 async def _fire_improve_background(dataset: str, session_id: str, user, reason: str) -> None:
     """Fire-and-forget session improve; failures are logged but never raised.
 
-    The server bridges the session itself from its session cache (improve),
-    instead of the old client-side full-document re-post — see run_session_improve.
+    The server selectively distills the session cache instead of re-posting the
+    raw transcript — see run_session_improve.
     """
     try:
         if http_api_ready():
