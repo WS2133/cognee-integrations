@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.9+codex.20260803003808
+
+- Malformed Unicode is normalized before session capture and HTTP serialization,
+  preventing lone surrogates from poisoning remote writes and retry replays.
+
 ## 1.3.8+codex.20260801210028
 
 - Automatic Codex and Hermes session finalization now calls the selective

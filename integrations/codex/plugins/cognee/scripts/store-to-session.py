@@ -95,6 +95,7 @@ def _truncate_str(value, cap: int) -> str:
         return ""
     text = value if isinstance(value, str) else json.dumps(value, default=str, ensure_ascii=False)
     encoded = text.encode("utf-8", errors="replace")
+    text = encoded.decode("utf-8")
     if len(encoded) <= cap:
         return text
     return encoded[: cap - 3].decode("utf-8", errors="ignore") + "..."
