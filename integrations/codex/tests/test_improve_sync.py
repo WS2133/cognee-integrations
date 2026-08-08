@@ -65,12 +65,11 @@ def test_improve_posts_expected_json_payload():
         urllib.request.urlopen = orig
 
     assert res["ok"] is True
-    assert captured["req"].full_url.endswith("/api/v1/improve")
+    assert captured["req"].full_url.endswith("/api/v1/improve/distill")
     body = json.loads(captured["req"].data.decode("utf-8"))
     assert body == {
-        "datasetName": "ds",
-        "sessionIds": ["sid"],
-        "runInBackground": False,
+        "dataset_name": "ds",
+        "session_id": "sid",
     }
     assert captured["timeout"] >= 60
 
