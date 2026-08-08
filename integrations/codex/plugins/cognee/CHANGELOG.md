@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0+codex.2026080901
+
+- Warmup-buffer replay now runs in a detached, deadline-bounded worker with
+  ordered retries and a persisted circuit breaker, keeping writes off the
+  prompt path without discarding pending entries.
+- `COGNEE_AUTO_IMPROVE_EVERY=0` now explicitly disables count-based promotion.
+- `COGNEE_IDLE_IMPROVE=false` disables only quiet-time promotion; signal and
+  stop-sentinel final synchronization still runs.
+- Doctor reports effective recall timeout, recall budget, idle promotion, and
+  count-based promotion settings together with their configuration source.
+
 ## 1.3.9+codex.20260803003808
 
 - Malformed Unicode is normalized before session capture and HTTP serialization,

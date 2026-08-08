@@ -41,6 +41,28 @@ _LOGFILE = _PLUGIN_DIR / "watcher.log"
 _should_stop = False
 
 
+def idle_improve_enabled() -> bool:
+    """Return whether quiet-time promotion is enabled for this watcher."""
+    sys.path.insert(0, os.path.dirname(__file__))
+    from _plugin_common import _bool_env  # type: ignore
+
+    return _bool_env("COGNEE_IDLE_IMPROVE", True)
+
+
+async def should_run_shutdown_sync(
+    exit_reason: str,
+    *,
+    activity_is_new: bool,
+    bridge_disabled: bool = False,
+) -> bool:
+    """Keep signal/stop finalization independent of the idle-only policy."""
+    return (
+        not bridge_disabled
+        and exit_reason in {"signal", "stop_sentinel"}
+        and activity_is_new
+    )
+
+
 def _log(event: str, **detail) -> None:
     try:
         _PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
@@ -283,6 +305,7 @@ def _check_llm_key(config: dict) -> None:
 
 
 async def _main_loop(session_id: str, dataset: str, config: dict) -> None:
+    idle_enabled = idle_improve_enabled()
     _log(
         "started",
         session=session_id,
@@ -290,6 +313,7 @@ async def _main_loop(session_id: str, dataset: str, config: dict) -> None:
         user_id=config.get("user_id", ""),
         poll=POLL_SECONDS,
         idle=IDLE_SECONDS,
+        idle_improve=idle_enabled,
     )
     # Runs once per watcher launch (≈ once per session); the check itself is
     # internally rate-limited to ≤ once per COGNEE_UPDATE_CHECK_INTERVAL.
@@ -319,7 +343,8 @@ async def _main_loop(session_id: str, dataset: str, config: dict) -> None:
         idle_for = now - ts
         time_since_improve = now - last_improved_at
         if (
-            not bridge_disabled
+            idle_enabled
+            and not bridge_disabled
             and idle_for >= IDLE_SECONDS
             and time_since_improve >= IMPROVE_COOLDOWN
             and not _pending_turn_exists(session_id, config)
@@ -340,11 +365,10 @@ async def _main_loop(session_id: str, dataset: str, config: dict) -> None:
         exit_reason = "signal"
 
     ts = _read_activity_ts()
-    if (
-        not bridge_disabled
-        and exit_reason in {"signal", "stop_sentinel"}
-        and ts
-        and ts > last_improved_at
+    if await should_run_shutdown_sync(
+        exit_reason,
+        activity_is_new=bool(ts and ts > last_improved_at),
+        bridge_disabled=bridge_disabled,
     ):
         _log("shutdown_trigger", reason=exit_reason, activity_age=round(time.time() - ts, 1))
         ok = await _improve_once(session_id, dataset, config)

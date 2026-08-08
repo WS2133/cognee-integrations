@@ -356,6 +356,48 @@ def test_breaker_open():
 # Output
 
 
+def test_effective_settings_report_env_file_values_and_shell_override():
+    keys = (
+        "COGNEE_ENV_FILE",
+        "COGNEE_RECALL_TIMEOUT",
+        "COGNEE_RECALL_BUDGET",
+        "COGNEE_IDLE_IMPROVE",
+        "COGNEE_AUTO_IMPROVE_EVERY",
+    )
+    saved = {key: os.environ[key] for key in keys if key in os.environ}
+    env_file = pathlib.Path(_TMP) / "effective-settings.env"
+    env_file.write_text(
+        "\n".join(
+            (
+                "COGNEE_RECALL_TIMEOUT=10",
+                "COGNEE_RECALL_BUDGET=11",
+                "COGNEE_IDLE_IMPROVE=false",
+                "COGNEE_AUTO_IMPROVE_EVERY=0",
+            )
+        ),
+        encoding="utf-8",
+    )
+    for key in keys:
+        os.environ.pop(key, None)
+    os.environ["COGNEE_ENV_FILE"] = str(env_file)
+    try:
+        settings = doctor._resolve_effective_settings()
+        assert settings == {
+            "recall_timeout": {"value": 10.0, "source": "Env file"},
+            "recall_budget": {"value": 11.0, "source": "Env file"},
+            "idle_improve": {"value": False, "source": "Env file"},
+            "auto_improve_every": {"value": 0, "source": "Env file"},
+        }
+
+        os.environ["COGNEE_RECALL_TIMEOUT"] = "12"
+        overridden = doctor._resolve_effective_settings()
+        assert overridden["recall_timeout"] == {"value": 12.0, "source": "ENV"}
+    finally:
+        for key in keys:
+            os.environ.pop(key, None)
+        os.environ.update(saved)
+
+
 def test_json_output():
     _reset_env("COGNEE_BASE_URL", "COGNEE_LOCAL_API_URL", "LLM_API_KEY")
     _reset_breaker()
@@ -375,6 +417,10 @@ def test_json_output():
         "embedding_model",
         "embedding_dimensions",
         "circuit_breaker",
+        "recall_timeout",
+        "recall_budget",
+        "idle_improve",
+        "auto_improve_every",
     }
     assert expected == set(parsed.keys()), f"keys mismatch: {expected ^ set(parsed.keys())}"
 
@@ -387,6 +433,10 @@ def test_human_output_contains_header():
     assert "Mode:" in text
     assert "Cognee (local):" in text
     assert "Circuit Breaker:" in text
+    assert "Recall Timeout:" in text
+    assert "Recall Budget:" in text
+    assert "Idle Improve:" in text
+    assert "Auto Improve Every:" in text
 
 
 if __name__ == "__main__":

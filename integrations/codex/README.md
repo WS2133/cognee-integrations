@@ -152,14 +152,19 @@ Data added outside of Claude to the dataset (via SDK or the server for example) 
 
 Session→graph sync calls `/api/v1/improve/distill`. The server reads the session cache and writes only durable decisions, constraints, corrections, outcomes, pain points, preferences, and open questions. Raw Q&A remains session-local, and failed distillation stays retryable instead of falling back to a raw-document upload.
 
-An idle watcher runs in the background for the lifetime of each launch. It polls activity every `COGNEE_IDLE_POLL` seconds and fires an improve when the session has been quiet for `COGNEE_IDLE_THRESHOLD` seconds and no prompt is waiting for its answer, then waits at least `COGNEE_IMPROVE_COOLDOWN` seconds before the next run. An automatic improve also fires every `COGNEE_AUTO_IMPROVE_EVERY` stored answers.
+An idle watcher runs in the background for the lifetime of each launch. It polls activity every `COGNEE_IDLE_POLL` seconds and fires an improve when the session has been quiet for `COGNEE_IDLE_THRESHOLD` seconds and no prompt is waiting for its answer, then waits at least `COGNEE_IMPROVE_COOLDOWN` seconds before the next run. Set `COGNEE_IDLE_IMPROVE=false` to disable only this quiet-time trigger; signal and stop-sentinel final synchronization still runs. An automatic improve also fires every `COGNEE_AUTO_IMPROVE_EVERY` stored answers, with `0` disabling the count-based trigger.
+
+When a backend becomes ready after warmup, the first prompt schedules a detached buffer-drain worker and continues without waiting. The worker preserves entry order, uses bounded per-entry and overall deadlines, and leaves every unreplayed entry pending across retries or an open circuit breaker.
 
 | Env var | Default | Effect |
 |---|---|---|
 | `COGNEE_IDLE_POLL` | `10` | Poll interval in seconds |
 | `COGNEE_IDLE_THRESHOLD` | `60` | Seconds of inactivity before idle improve fires |
 | `COGNEE_IMPROVE_COOLDOWN` | `600` | Minimum seconds between idle improve runs |
+| `COGNEE_IDLE_IMPROVE` | `true` | Enable quiet-time improves; does not control final synchronization |
 | `COGNEE_AUTO_IMPROVE_EVERY` | `150` | Stored answers between automatic improves (0 disables) |
+| `COGNEE_RECALL_TIMEOUT` | `5` | Maximum seconds for an individual prompt-recall scope |
+| `COGNEE_RECALL_BUDGET` | `6` | Overall prompt-recall budget in seconds |
 | `COGNEE_IMPROVE_SUBMIT_TIMEOUT` | `180` | Read timeout for the improve POST (distillation runs inside the request) |
 | `COGNEE_IMPROVE_BUSY_DEADLINE` | `600` | How long to wait for a concurrent improve's session lock before giving up |
 | `COGNEE_IMPROVE_BUSY_RETRY_INTERVAL` | `15` | Seconds between re-submits while the session lock is held |
@@ -299,7 +304,7 @@ Config precedence:
 3. `~/.cognee-plugin/config.json`
 4. defaults
 
-`~/.cognee/.env` is created with a commented template on first session start (permissions `0600`; the path can be overridden with `COGNEE_ENV_FILE`). Run `doctor.py` to see which keys the file defines and which are overridden by shell exports.
+`~/.cognee/.env` is created with a commented template on first session start (permissions `0600`; the path can be overridden with `COGNEE_ENV_FILE`). Run `doctor.py` to see which keys the file defines, which are overridden by shell exports, and the effective recall and promotion settings with their source.
 
 ### Managing the env file
 
@@ -356,7 +361,10 @@ Keys are letters, digits, and underscores. Values are taken literally — no `$V
 | idle watcher poll | `COGNEE_IDLE_POLL` | `10` | Idle watcher poll interval in seconds |
 | idle watcher threshold | `COGNEE_IDLE_THRESHOLD` | `60` | Seconds of inactivity before idle improve fires |
 | idle watcher cooldown | `COGNEE_IMPROVE_COOLDOWN` | `600` | Minimum seconds between idle improve runs |
+| idle improve enabled | `COGNEE_IDLE_IMPROVE` | `true` | Disable quiet-time promotion without disabling final sync |
 | auto-improve threshold | `COGNEE_AUTO_IMPROVE_EVERY` | `150` | Stored answers between automatic improves (0 disables) |
+| recall scope timeout | `COGNEE_RECALL_TIMEOUT` | `5` | Maximum seconds per prompt-recall scope |
+| recall budget | `COGNEE_RECALL_BUDGET` | `6` | Overall prompt-recall budget in seconds |
 | improve submit timeout | `COGNEE_IMPROVE_SUBMIT_TIMEOUT` | `180` | Read timeout for the improve POST |
 
 ## Troubleshooting

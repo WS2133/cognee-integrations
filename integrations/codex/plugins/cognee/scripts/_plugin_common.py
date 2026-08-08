@@ -1028,10 +1028,22 @@ def pop_pending_prompt(session_id: str, *, turn_id: str = "") -> dict:
 
 
 def _auto_improve_threshold() -> int:
-    raw = os.environ.get("COGNEE_AUTO_IMPROVE_EVERY", "")
-    if raw.isdigit() and int(raw) > 0:
-        return int(raw)
-    return AUTO_IMPROVE_EVERY_DEFAULT
+    raw = os.environ.get("COGNEE_AUTO_IMPROVE_EVERY", "").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return AUTO_IMPROVE_EVERY_DEFAULT
+    return value if value >= 0 else AUTO_IMPROVE_EVERY_DEFAULT
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    """Resolve a permissive boolean environment setting."""
+    raw = str(os.environ.get(name, "") or "").strip().casefold()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def bump_turn_counter(session_id: str) -> tuple[int, bool]:

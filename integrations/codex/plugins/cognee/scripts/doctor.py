@@ -205,6 +205,62 @@ def _resolve_env_file() -> str:
     return desc
 
 
+def _parse_float_setting(raw: str, default: float) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_bool_setting(raw: str, default: bool) -> bool:
+    value = str(raw or "").strip().casefold()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _parse_nonnegative_int_setting(raw: str, default: int) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+def _resolve_effective_setting(name: str, default, parser) -> dict:
+    """Resolve one non-secret setting with shell > env-file > default precedence."""
+    from _env_file import env_file_path, parse_env_file
+
+    file_raw = str(parse_env_file(env_file_path()).get(name, "") or "").strip()
+    env_raw = str(os.environ.get(name, "") or "").strip()
+    if env_raw:
+        source = "Env file" if file_raw and env_raw == file_raw else "ENV"
+        return {"value": parser(env_raw, default), "source": source}
+    if file_raw:
+        return {"value": parser(file_raw, default), "source": "Env file"}
+    return {"value": default, "source": "Default"}
+
+
+def _resolve_effective_settings() -> dict:
+    """Return credential-free effective recall and promotion controls."""
+    return {
+        "recall_timeout": _resolve_effective_setting(
+            "COGNEE_RECALL_TIMEOUT", 5.0, _parse_float_setting
+        ),
+        "recall_budget": _resolve_effective_setting(
+            "COGNEE_RECALL_BUDGET", 6.0, _parse_float_setting
+        ),
+        "idle_improve": _resolve_effective_setting(
+            "COGNEE_IDLE_IMPROVE", True, _parse_bool_setting
+        ),
+        "auto_improve_every": _resolve_effective_setting(
+            "COGNEE_AUTO_IMPROVE_EVERY", 150, _parse_nonnegative_int_setting
+        ),
+    }
+
+
 def collect_report() -> dict:
     """Gather all diagnostic fields into an ordered dict."""
     mode = _resolve_mode()
@@ -215,6 +271,7 @@ def collect_report() -> dict:
     cognee_local = _resolve_local_cognee_version()
     circuit_breaker = _resolve_circuit_breaker()
     embedding_model, embedding_dimensions = _resolve_embedding()
+    effective_settings = _resolve_effective_settings()
 
     return {
         "mode": mode,
@@ -228,6 +285,7 @@ def collect_report() -> dict:
         "embedding_model": embedding_model,
         "embedding_dimensions": embedding_dimensions,
         "circuit_breaker": circuit_breaker,
+        **effective_settings,
     }
 
 
@@ -243,6 +301,10 @@ _DISPLAY_ORDER = [
     ("Embedding Model", "embedding_model"),
     ("Embedding Dims", "embedding_dimensions"),
     ("Circuit Breaker", "circuit_breaker"),
+    ("Recall Timeout", "recall_timeout"),
+    ("Recall Budget", "recall_budget"),
+    ("Idle Improve", "idle_improve"),
+    ("Auto Improve Every", "auto_improve_every"),
 ]
 
 
@@ -256,6 +318,11 @@ def _format_value(key: str, value) -> str:
         if value is None:
             return "N/A"
         return f"{value} ms"
+    if isinstance(value, dict) and "value" in value and "source" in value:
+        effective = value["value"]
+        if isinstance(effective, bool):
+            effective = str(effective).lower()
+        return f"{effective} ({value['source']})"
     if value is None:
         return "N/A"
     return str(value)
