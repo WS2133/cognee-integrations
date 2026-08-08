@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from _plugin_common import (
     authed_liveness,
     bounded_dim_mismatch_hint,
-    drain_warmup_entries,
     get_session_key,
     hook_log,
     load_resolved,
@@ -35,6 +34,7 @@ from _plugin_common import (
     resolve_session_key_from_payload,
     resolve_user,
     same_connection_target,
+    schedule_warmup_drain,
     server_health_ok,
     server_ready_hint,
     service_url_is_local,
@@ -184,13 +184,17 @@ async def _run(prompt: str) -> dict | None:
         return None
 
     if just_became_ready:
-        # First prompt after the server came up: replay any entries buffered
-        # while it was warming so the server session cache (which improve
-        # bridges from) holds the full session.
+        # First prompt after the server came up: hand buffered replay to a
+        # detached, bounded worker. The prompt path must never wait for writes.
         try:
-            drain_warmup_entries(get_dataset(config), session_id)
+            dataset = get_dataset(config)
+            scheduled = schedule_warmup_drain(dataset, session_id)
+            hook_log(
+                "warmup_drain_schedule",
+                {"dataset": dataset, "session": session_id, "scheduled": scheduled},
+            )
         except Exception as exc:
-            hook_log("warmup_drain_failed", {"error": str(exc)[:200]})
+            hook_log("warmup_drain_schedule_failed", {"error": str(exc)[:200]})
 
     saves_last_turn = read_and_reset_save_counter(session_id)
 

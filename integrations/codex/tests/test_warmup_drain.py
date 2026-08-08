@@ -12,15 +12,29 @@ single-drainer lock prevents concurrent double-replays.
 Run: python integrations/codex/tests/test_warmup_drain.py (or via pytest).
 """
 
+import importlib.util
+import json
 import pathlib
+import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(
     0, str(pathlib.Path(__file__).resolve().parents[1] / "plugins" / "cognee" / "scripts")
 )
 
 import _plugin_common as pc  # noqa: E402
+
+_SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "cognee" / "scripts"
+
+
+def _load_worker():
+    path = _SCRIPTS / "drain-warmup.py"
+    spec = importlib.util.spec_from_file_location("drain_warmup_worker", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _with_tmp_bridge(fn):
@@ -105,6 +119,154 @@ def test_partial_failure_keeps_tail_buffered():
     assert first == (1, 2)
     assert second == (2, 0)
     assert [e.get("origin_function") or e["type"] for e in replayed] == ["Read", "Edit", "qa"]
+
+
+def test_expired_deadline_skips_http_and_keeps_every_pending_entry():
+    def _run():
+        original = [
+            {"type": "trace", "origin_function": "Read"},
+            {"type": "qa", "question": "q", "answer": "a"},
+        ]
+        for entry in original:
+            pc.append_warmup_entry("ds", "sid", entry)
+        calls = []
+        saved = pc.remember_entry_via_http
+        pc.remember_entry_via_http = lambda *args, **kwargs: calls.append((args, kwargs)) or {}
+        try:
+            result = pc.drain_warmup_entries(
+                "ds",
+                "sid",
+                deadline=time.monotonic() - 1.0,
+                per_entry_timeout=0.5,
+            )
+        finally:
+            pc.remember_entry_via_http = saved
+        cache = pc._load_json_file(pc._bridge_file("sid"))
+        pending = (cache.get(pc._bridge_cache_key("ds", "sid")) or {}).get("pending_entries")
+        return result, calls, pending, original
+
+    result, calls, pending, original = _with_tmp_bridge(_run)
+    assert result == (0, 2)
+    assert calls == []
+    assert pending == original
+
+
+def test_first_write_failure_keeps_ordered_tail_untouched():
+    def _run():
+        original = [
+            {"type": "trace", "origin_function": "Read"},
+            {"type": "trace", "origin_function": "Edit"},
+        ]
+        for entry in original:
+            pc.append_warmup_entry("ds", "sid", entry)
+        calls = []
+        saved = pc.remember_entry_via_http
+
+        def _fail(*args, **kwargs):
+            calls.append((args, kwargs))
+            raise TimeoutError("write deadline")
+
+        pc.remember_entry_via_http = _fail
+        try:
+            result = pc.drain_warmup_entries(
+                "ds",
+                "sid",
+                deadline=time.monotonic() + 10.0,
+                per_entry_timeout=0.5,
+            )
+        finally:
+            pc.remember_entry_via_http = saved
+        cache = pc._load_json_file(pc._bridge_file("sid"))
+        pending = (cache.get(pc._bridge_cache_key("ds", "sid")) or {}).get("pending_entries")
+        return result, calls, pending, original
+
+    result, calls, pending, original = _with_tmp_bridge(_run)
+    assert result == (0, 2)
+    assert len(calls) == 1
+    assert calls[0][1]["timeout"] <= 0.5
+    assert pending == original
+
+
+def test_worker_opens_persisted_breaker_after_three_consecutive_failures(tmp_path, monkeypatch):
+    worker = _load_worker()
+    events = []
+    attempts = []
+    sleeps = []
+    monkeypatch.setattr(worker, "_BREAKER_DIR", tmp_path / "breakers")
+    monkeypatch.setattr(worker, "hook_log", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(
+        worker,
+        "drain_warmup_entries",
+        lambda *args, **kwargs: attempts.append((args, kwargs)) or (0, 2),
+    )
+    monkeypatch.setattr(worker.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    payload = {"dataset": "ds", "session_id": "sid", "session_key": "host-session"}
+    assert worker.run_worker(payload) == 1
+    assert worker.run_worker(payload) == 1
+    result = worker.run_worker(payload)
+
+    state = json.loads(worker._breaker_path("ds", "sid").read_text(encoding="utf-8"))
+    assert result == 1
+    assert len(attempts) == 15
+    assert sleeps == [1.0, 2.0, 4.0, 5.0] * 3
+    assert state["consecutive_failures"] == 3
+    assert state["open_until"] > time.time()
+    assert [event for event, _data in events][-1] == "drain_breaker_open"
+
+
+def test_open_worker_breaker_makes_zero_http_calls(tmp_path, monkeypatch):
+    worker = _load_worker()
+    events = []
+    attempts = []
+    monkeypatch.setattr(worker, "_BREAKER_DIR", tmp_path / "breakers")
+    breaker_path = worker._breaker_path("ds", "sid")
+    breaker_path.parent.mkdir(parents=True, exist_ok=True)
+    breaker_path.write_text(
+        json.dumps({"consecutive_failures": 3, "open_until": time.time() + 60.0}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(worker, "hook_log", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(
+        worker,
+        "drain_warmup_entries",
+        lambda *args, **kwargs: attempts.append((args, kwargs)) or (1, 0),
+    )
+
+    result = worker.run_worker(
+        {"dataset": "ds", "session_id": "sid", "session_key": "host-session"}
+    )
+
+    assert result == 0
+    assert attempts == []
+    assert [event for event, _data in events] == ["drain_breaker_open"]
+
+
+def test_schedule_warmup_drain_uses_detached_argument_array(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(pc, "_WARMUP_DRAIN_LOG", tmp_path / "drain-worker.log", raising=False)
+    monkeypatch.setattr(pc, "get_session_key", lambda: "host-session")
+    monkeypatch.setattr(
+        pc.subprocess,
+        "Popen",
+        lambda args, **kwargs: calls.append((args, kwargs)) or object(),
+        raising=False,
+    )
+
+    assert pc.schedule_warmup_drain("ds", "sid") is True
+
+    args, kwargs = calls[0]
+    payload = json.loads(args[2])
+    assert isinstance(args, list)
+    assert payload == {"dataset": "ds", "session_id": "sid", "session_key": "host-session"}
+    assert kwargs["stdin"] is subprocess.DEVNULL
+    assert kwargs.get("shell", False) is False
+    if sys.platform == "win32":
+        expected = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        assert kwargs["creationflags"] & expected == expected
+        assert "start_new_session" not in kwargs
+    else:
+        assert kwargs["start_new_session"] is True
 
 
 def test_concurrent_append_during_drain_survives():

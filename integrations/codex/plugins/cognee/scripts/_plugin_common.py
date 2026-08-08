@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import ssl
+import subprocess
 import sys
 import threading
 import time
@@ -1997,6 +1998,8 @@ def append_warmup_entry(dataset: str, session_id: str, entry: dict) -> None:
 
 _DRAIN_LOCK = _PLUGIN_DIR / "drain.lock"
 _DRAIN_LOCK_STALE_SECONDS = 60.0
+_WARMUP_DRAIN_SCRIPT = Path(__file__).with_name("drain-warmup.py")
+_WARMUP_DRAIN_LOG = _PLUGIN_DIR / "drain-worker.log"
 # Pause before the one in-place drain retry in run_session_improve: long enough
 # for a momentary server blip to pass, short enough not to hold up a sync.
 _DRAIN_RETRY_PAUSE_SECONDS = 2.0
@@ -2034,7 +2037,75 @@ def _release_drain_lock() -> None:
         hook_log("drain_lock_release_failed", {"error": str(exc)[:200]})
 
 
-def drain_warmup_entries(dataset: str, session_id: str) -> tuple:
+def schedule_warmup_drain(dataset: str, session_id: str) -> bool:
+    """Launch the bounded warmup drain worker without waiting for it.
+
+    Only non-secret routing identifiers are placed in the argument payload. The
+    worker inherits supported runtime configuration and writes diagnostic output
+    to an append-only local log instead of the prompt hook's stdout/stderr.
+    """
+    if not dataset or not session_id:
+        return False
+
+    payload = {
+        "dataset": dataset,
+        "session_id": session_id,
+        "session_key": get_session_key(),
+    }
+    log_fh = None
+    log_target = subprocess.DEVNULL
+    try:
+        _WARMUP_DRAIN_LOG.parent.mkdir(parents=True, exist_ok=True)
+        log_fh = _WARMUP_DRAIN_LOG.open("a", encoding="utf-8")
+        log_target = log_fh
+    except Exception as exc:
+        hook_log("drain_worker_log_open_failed", {"error": str(exc)[:200]})
+
+    popen_kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": log_target,
+        "stderr": log_target,
+        "close_fds": True,
+    }
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    try:
+        subprocess.Popen(
+            [sys.executable, str(_WARMUP_DRAIN_SCRIPT), json.dumps(payload)],
+            **popen_kwargs,
+        )
+        hook_log(
+            "drain_scheduled",
+            {
+                "dataset": dataset,
+                "session": session_id,
+                "session_key": bool(payload["session_key"]),
+            },
+        )
+        return True
+    except Exception as exc:
+        hook_log(
+            "drain_schedule_failed",
+            {"dataset": dataset, "session": session_id, "error": str(exc)[:200]},
+        )
+        return False
+    finally:
+        if log_fh is not None:
+            log_fh.close()
+
+
+def drain_warmup_entries(
+    dataset: str,
+    session_id: str,
+    *,
+    deadline: float | None = None,
+    per_entry_timeout: float = 5.0,
+) -> tuple[int, int]:
     """Replay warmup-buffered entries into the server session cache, in order.
 
     Returns ``(drained, remaining)``. Stops at the first replay failure so the
@@ -2056,8 +2127,22 @@ def drain_warmup_entries(dataset: str, session_id: str) -> tuple:
     try:
         drained = 0
         for entry in snapshot:
+            timeout = per_entry_timeout
+            if deadline is not None:
+                remaining_seconds = deadline - time.monotonic()
+                if remaining_seconds <= 0:
+                    hook_log(
+                        "warmup_drain_deadline",
+                        {
+                            "session": session_id,
+                            "drained": drained,
+                            "pending": len(snapshot) - drained,
+                        },
+                    )
+                    break
+                timeout = min(per_entry_timeout, remaining_seconds)
             try:
-                remember_entry_via_http(dataset, session_id, entry)
+                remember_entry_via_http(dataset, session_id, entry, timeout=timeout)
                 drained += 1
             except Exception as exc:
                 hook_log("warmup_drain_error", {"error": str(exc)[:200], "drained": drained})
