@@ -13,6 +13,7 @@ Configuration:
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 
@@ -59,6 +60,76 @@ TRUNCATE_GRAPH_CTX = 1500
 # Smallest per-scope timeout worth dispatching; with less budget than this
 # left, remaining scopes are skipped rather than fired with a doomed deadline.
 MIN_SCOPE_TIMEOUT = 0.2
+
+_LIVE_STATE_SIGNAL = re.compile(
+    r"\b(?:current|currently|latest|today|right\s+now|as\s+of\s+now|at\s+the\s+moment)\b",
+    re.IGNORECASE,
+)
+_LIVE_STATE_PHRASE = re.compile(
+    r"\b(?:active|effective|live|running)\s+"
+    r"(?:config(?:uration)?|container|health|model|price|pricing|process|schedule|scheduler|"
+    r"service|setting|state|status|version)s?\b",
+    re.IGNORECASE,
+)
+_INHERENTLY_VOLATILE_TOPIC = re.compile(
+    r"\b(?:health|price|pricing|schedule|scheduler|service\s+status)\b",
+    re.IGNORECASE,
+)
+_TOKEN = re.compile(r"\w+(?:[.:+/#@-]\w+)*", re.UNICODE)
+_TOKEN_SEPARATOR = re.compile(r"[_.:+/#@-]+")
+_RELEVANCE_STOP_WORDS = frozenset(
+    """
+    a about above after again against all am an and any are as at be because been before being
+    below between both but by can continue could did do does doing done down during each exact few
+    for from further graph had has have having he her here hers herself him himself his how i if in
+    information into is it its itself just last me memory more most my myself no nor not now of off
+    on once only or other our ours ourselves out over own passage proceed prompt question raw recall
+    relevant resume retry same session should so some source state such summary system than that the
+    their theirs them themselves then there these they this those through to too under until up user
+    very was we were what when where which while who whom why will with would you your yours
+    yourself yourselves current currently fact facts context answer agent okay ok approved
+    """.split()
+)
+
+
+def _requires_live_verification(prompt: str) -> bool:
+    """Return True when a prompt explicitly asks for volatile or live state."""
+    return bool(
+        _LIVE_STATE_SIGNAL.search(prompt)
+        or _LIVE_STATE_PHRASE.search(prompt)
+        or _INHERENTLY_VOLATILE_TOPIC.search(prompt)
+    )
+
+
+def _normalize_topic_token(token: str) -> str:
+    token = token.casefold()
+    if len(token) > 4 and token.endswith("ies"):
+        return token[:-3] + "y"
+    if len(token) > 4 and token.endswith("s") and not token.endswith(("is", "ss", "us")):
+        return token[:-1]
+    return token
+
+
+def _meaningful_terms(text: str) -> set[str]:
+    """Extract non-boilerplate topic terms, identifiers, and numbers."""
+    terms = set()
+    for token in _TOKEN.findall(text):
+        candidates = [token, *_TOKEN_SEPARATOR.split(token)]
+        for candidate in candidates:
+            normalized = _normalize_topic_token(candidate)
+            if len(normalized) < 3 or normalized in _RELEVANCE_STOP_WORDS:
+                continue
+            terms.add(normalized)
+    return terms
+
+
+def _graph_entry_relevant(prompt: str, entry: dict) -> bool:
+    """Keep graph evidence only when it overlaps a meaningful prompt topic."""
+    content = str(entry.get("content", "") or entry.get("text", "")).strip()
+    if not content:
+        return False
+    prompt_terms = _meaningful_terms(prompt)
+    return bool(prompt_terms and prompt_terms.intersection(_meaningful_terms(content)))
 
 
 def _load_session_id() -> str:
@@ -197,6 +268,7 @@ async def _run(prompt: str) -> dict | None:
             hook_log("warmup_drain_schedule_failed", {"error": str(exc)[:200]})
 
     saves_last_turn = read_and_reset_save_counter(session_id)
+    live_verification_required = _requires_live_verification(prompt)
 
     # Run scopes independently: a failure in one (e.g. graph search hitting an
     # empty/locked Ladybug DB) must not discard hits already collected from the
@@ -253,6 +325,9 @@ async def _run(prompt: str) -> dict | None:
             hook_log("recall_breaker_open", {"retry_in": _bretry})
             scope_specs = []
     for scope_list, qtype, context_profile in scope_specs:
+        if live_verification_required and scope_list == ["graph"]:
+            hook_log("graph_recall_skipped_live_state")
+            continue
         # Clamp each call to what is left of the budget so a single scope can
         # never overshoot the deadline (previously a scope dispatched just
         # before the deadline could run a full recall_timeout past it). Below
@@ -314,6 +389,7 @@ async def _run(prompt: str) -> dict | None:
         "graph_context": [],
         "session_context": [],
     }
+    rejected_graph_results = 0
     for r in results or []:
         if hasattr(r, "model_dump"):
             r = r.model_dump()
@@ -326,9 +402,15 @@ async def _run(prompt: str) -> dict | None:
         if src == "graph":
             r["source"] = "graph_context"
             src = "graph_context"
+        if src == "graph_context" and not _graph_entry_relevant(prompt, r):
+            rejected_graph_results += 1
+            continue
         if not _has_entry_content(r):
             continue
         by_source.setdefault(src, []).append(r)
+
+    if rejected_graph_results:
+        hook_log("graph_relevance_rejected", {"count": rejected_graph_results})
 
     counts = {k: len(v) for k, v in by_source.items()}
     total = sum(counts.values())
@@ -369,6 +451,13 @@ async def _run(prompt: str) -> dict | None:
         f"{saves_last_turn['prompt']} prompt / {saves_last_turn['trace']} trace / "
         f"{saves_last_turn['answer']} answer"
     )
+    context_prefix = header
+    if live_verification_required:
+        context_prefix += (
+            "\n\nlive_verification_required: This prompt asks for volatile or live state. "
+            "Verify it against the authoritative live source; durable graph memory was "
+            "deliberately excluded."
+        )
 
     section_lines = []
     if by_source.get("session_context"):
@@ -394,7 +483,7 @@ async def _run(prompt: str) -> dict | None:
 
     if total > 0:
         full_context = (
-            f"{header}\n\nRelevant context from this session's memory:\n\n"
+            f"{context_prefix}\n\nRelevant context from this session's memory:\n\n"
             + "\n".join(section_lines).strip()
         )
         hook_log(
@@ -415,11 +504,11 @@ async def _run(prompt: str) -> dict | None:
             except Exception as exc:
                 hook_log("dim_check_error", {"error": str(exc)[:200]})
         if dim_message:
-            full_context = f"{header}\n\n{dim_message}"
+            full_context = f"{context_prefix}\n\n{dim_message}"
             hook_log("context_lookup_dim_mismatch", {"message": dim_message})
             notify(dim_message)
         else:
-            full_context = f"{header}\n\n(no memory matches for this prompt)"
+            full_context = f"{context_prefix}\n\n(no memory matches for this prompt)"
             hook_log(
                 "context_lookup_empty",
                 {"per_scope": per_scope, "saves_last_turn": saves_last_turn},

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0+codex.2026080902
+
+- Volatile prompts now exclude durable graph answers and emit a
+  `live_verification_required` marker for the authoritative live source.
+- Graph snapshots require meaningful query-topic overlap, so unsupported and
+  control prompts abstain without suppressing relevant paraphrases.
+
 ## 1.4.0+codex.2026080901
 
 - Warmup-buffer replay now runs in a detached, deadline-bounded worker with
