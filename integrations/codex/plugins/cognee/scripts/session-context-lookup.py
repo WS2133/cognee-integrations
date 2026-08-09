@@ -71,8 +71,13 @@ _LIVE_STATE_PHRASE = re.compile(
     r"service|setting|state|status|version)s?\b",
     re.IGNORECASE,
 )
+_LIVE_STATE_PREDICATE = re.compile(
+    r"\b(?:container|model|process|service|version)s?\s+(?:is|are)\s+"
+    r"(?:active|in\s+use|running)\b",
+    re.IGNORECASE,
+)
 _INHERENTLY_VOLATILE_TOPIC = re.compile(
-    r"\b(?:health|price|pricing|schedule|scheduler|service\s+status)\b",
+    r"\b(?:health|healthy|prices?|pricing|schedules?|schedulers?|service\s+status)\b",
     re.IGNORECASE,
 )
 _TOKEN = re.compile(r"\w+(?:[.:+/#@-]\w+)*", re.UNICODE)
@@ -97,6 +102,7 @@ def _requires_live_verification(prompt: str) -> bool:
     return bool(
         _LIVE_STATE_SIGNAL.search(prompt)
         or _LIVE_STATE_PHRASE.search(prompt)
+        or _LIVE_STATE_PREDICATE.search(prompt)
         or _INHERENTLY_VOLATILE_TOPIC.search(prompt)
     )
 

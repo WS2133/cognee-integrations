@@ -158,6 +158,19 @@ def test_current_state_prompt_requires_live_verification_without_graph(tmp_path,
     assert "[agent-guidance]" in context
 
 
+def test_live_state_classifier_covers_plural_and_predicate_forms():
+    module = _load_script("session-context-lookup.py")
+
+    prompts = [
+        "What schedules are configured for Hermes?",
+        "What prices were retrieved for the watch list?",
+        "Is Cognee healthy?",
+        "Which Cognee process is running?",
+    ]
+
+    assert all(module._requires_live_verification(prompt) for prompt in prompts)
+
+
 def test_unrelated_graph_result_abstains(tmp_path, monkeypatch):
     module = _load_script("session-context-lookup.py")
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0+codex.2026080903
+
+- Live-state routing now covers plural volatile topics and predicate forms such
+  as configured schedules, retrieved prices, service health, and running
+  processes.
+
 ## 1.4.0+codex.2026080902
 
 - Volatile prompts now exclude durable graph answers and emit a
