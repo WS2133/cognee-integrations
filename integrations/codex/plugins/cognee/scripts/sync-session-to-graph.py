@@ -11,6 +11,7 @@ Configuration:
 
 import asyncio
 import hashlib
+import importlib.util
 import json
 import os
 import signal
@@ -54,6 +55,12 @@ _FINAL_SYNC_ONCE_TTL_SECONDS = 3600
 _DETACHED_RETRIES_DEFAULT = 3
 _DETACHED_RETRY_DELAY_DEFAULT = 10.0
 _SESSION_END_START_DELAY_DEFAULT = 2.0
+_STORE_SPEC = importlib.util.spec_from_file_location(
+    "cognee_store_to_session_for_sync",
+    Path(__file__).with_name("store-to-session.py"),
+)
+_STORE_MODULE = importlib.util.module_from_spec(_STORE_SPEC)
+_STORE_SPEC.loader.exec_module(_STORE_MODULE)
 
 
 def _stop_idle_watcher() -> None:
@@ -363,6 +370,7 @@ def main():
     detached_final = _DETACHED_ARG in sys.argv
     forced_session_end = _SESSION_END_ARG in sys.argv
     payload_raw = "" if detached_final else sys.stdin.read()
+    payload = {}
     if not detached_final and payload_raw.strip():
         try:
             payload = json.loads(payload_raw)
@@ -404,6 +412,10 @@ def main():
     # slash-command invocations happen mid-session, and killing the watcher
     # there prevents later idle persistence.
     if is_session_end:
+        try:
+            asyncio.run(_STORE_MODULE._store_latest_completed_turn(payload.get("transcript_path")))
+        except Exception as exc:
+            hook_log("session_end_answer_flush_failed", {"error": str(exc)[:200]})
         _stop_idle_watcher()
         spawned = _spawn_detached_sync()
         hook_log("sync_deferred_to_shutdown_worker", {"spawned": spawned})

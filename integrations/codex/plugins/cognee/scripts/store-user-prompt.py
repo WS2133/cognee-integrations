@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Store the user's prompt until Codex Stop provides the assistant answer.
+"""Store prompts and pair the prior completed Codex turn with its answer.
 
 Runs async on the UserPromptSubmit hook so it doesn't block the
 parallel context-lookup hook. Unlike the Claude integration, Codex keeps
-the prompt pending and writes a single paired QAEntry on Stop.
+the prompt pending and writes one paired QAEntry on the next prompt.
 
 Configuration:
     Resolves session state via Cognee HTTP endpoints.
 """
 
 import asyncio
+import importlib.util
 import json
 import os
 import subprocess
@@ -41,6 +42,12 @@ _STATE_DIR = Path.home() / ".cognee-plugin" / "codex"
 _WATCHER_PID = _STATE_DIR / "watcher.pid"
 _WATCHER_STOP = _STATE_DIR / "watcher.stop"
 _WATCHER_SCRIPT = Path(__file__).with_name("idle-watcher.py")
+_STORE_SPEC = importlib.util.spec_from_file_location(
+    "cognee_store_to_session",
+    Path(__file__).with_name("store-to-session.py"),
+)
+_STORE_MODULE = importlib.util.module_from_spec(_STORE_SPEC)
+_STORE_SPEC.loader.exec_module(_STORE_MODULE)
 
 
 def _load_session() -> tuple[str, str, str]:
@@ -131,6 +138,11 @@ async def _store(prompt: str, payload: dict):
         hook_log("no_session_id", {"event": "prompt"})
         return
 
+    try:
+        await _STORE_MODULE._store_latest_completed_turn(payload.get("transcript_path"))
+    except Exception as exc:
+        hook_log("prior_answer_flush_failed", {"error": str(exc)[:200]})
+
     config = load_config()
     touch_activity()
     _ensure_idle_watcher(session_id, dataset, user_id, config)
@@ -138,7 +150,7 @@ async def _store(prompt: str, payload: dict):
     runtime = resolve_runtime_mode()
     if runtime["mode"] == "local_sdk" and server_ready_hint(runtime.get("base_url", "")):
         # Keep Cognee initialization parity with Claude so fresh local
-        # databases, identities, and datasets are ready before Stop writes.
+        # databases, identities, and datasets are ready before answer capture.
         # Skipped while the server is still warming so this hook never blocks;
         # the prompt is still buffered below and flushed once the server is up.
         try:

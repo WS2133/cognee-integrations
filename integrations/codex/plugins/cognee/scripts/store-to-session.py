@@ -3,10 +3,9 @@
 
 Routes tool calls to the structured ``TraceEntry`` path (new trace-step
 shape with origin_function / method_params / method_return_value /
-status). Routes the final assistant message on Stop to a ``QAEntry``.
+status). Routes a completed assistant message to a ``QAEntry``.
 
-Runs async on the PostToolUse / Stop hooks - fire-and-forget, never
-blocks Codex.
+Runs from the PostToolUse path and transcript capture callers.
 
 Configuration:
     Resolves session state via Cognee HTTP endpoints.
@@ -17,6 +16,7 @@ import json
 import os
 import sys
 import urllib.error
+from pathlib import Path
 
 # Add scripts dir to path for helper imports
 sys.path.insert(0, os.path.dirname(__file__))
@@ -54,6 +54,37 @@ from config import (
 _MAX_PARAMS_BYTES = 4000
 _MAX_RETURN_BYTES = 8000
 _MAX_ASSISTANT_BYTES = 8000
+
+
+def _latest_completed_turn(transcript_path) -> dict:
+    """Return the latest completed Codex turn from its JSONL transcript."""
+    if not transcript_path:
+        return {}
+
+    latest = {}
+    try:
+        # ponytail: linear scan is ample for local transcripts; index offsets if they grow large.
+        with Path(transcript_path).open("r", encoding="utf-8", errors="replace") as transcript:
+            for line in transcript:
+                try:
+                    row = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                payload = row.get("payload") if isinstance(row, dict) else None
+                if not isinstance(payload, dict) or row.get("type") != "event_msg":
+                    continue
+                if payload.get("type") != "task_complete":
+                    continue
+                turn_id = str(payload.get("turn_id") or "")
+                message = str(payload.get("last_agent_message") or "")
+                if message and message != "null":
+                    latest = {
+                        "turn_id": turn_id,
+                        "last_assistant_message": message,
+                    }
+    except OSError as exc:
+        hook_log("transcript_read_failed", {"error": str(exc)[:200]})
+    return latest
 
 
 async def _fire_improve_background(dataset: str, session_id: str, user, reason: str) -> None:
@@ -260,7 +291,7 @@ async def _store_tool_call(payload: dict) -> None:
 
 
 async def _store_assistant_stop(payload: dict) -> None:
-    """Write a Stop-hook payload (final assistant message) as a QAEntry."""
+    """Write a final assistant message as a QAEntry."""
     msg = str(payload.get("assistant_message") or payload.get("last_assistant_message") or "")
     if not msg or msg == "null":
         return
@@ -272,10 +303,13 @@ async def _store_assistant_stop(payload: dict) -> None:
         hook_log("no_session_id", {"event": "stop"})
         return
 
+    pending = pop_pending_prompt(session_id, turn_id=str(payload.get("turn_id") or ""))
+    if not pending.get("prompt"):
+        hook_log("stop_store_skipped_no_pending", {"turn_id": payload.get("turn_id")})
+        return
     config = load_config()
     runtime = resolve_runtime_mode()
     use_http = runtime["mode"] == "http"
-    pending = pop_pending_prompt(session_id, turn_id=str(payload.get("turn_id") or ""))
 
     # Codex intentionally differs from Claude here: store one paired
     # prompt/answer row so Cognee's filesystem session cache does not get
@@ -361,6 +395,12 @@ async def _store_assistant_stop(payload: dict) -> None:
         count, should_improve = bump_turn_counter(session_id)
         if should_improve:
             await _fire_improve_background(dataset, session_id, user, reason=f"turn_{count}")
+
+
+async def _store_latest_completed_turn(transcript_path) -> None:
+    completed = _latest_completed_turn(transcript_path)
+    if completed:
+        await _store_assistant_stop(completed)
 
 
 def main():

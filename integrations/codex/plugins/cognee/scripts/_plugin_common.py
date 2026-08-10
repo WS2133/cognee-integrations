@@ -985,7 +985,7 @@ def _pending_keys(session_id: str, turn_id: str = "") -> tuple[str, str]:
 def remember_pending_prompt(
     session_id: str, prompt: str, *, turn_id: str = "", context: str = ""
 ) -> None:
-    """Store the current prompt until Codex Stop provides the assistant answer."""
+    """Store the current prompt until its completed assistant answer is captured."""
     if not session_id or not prompt.strip():
         return
     data = _load_json_file(_pending_file(session_id))
@@ -1001,7 +1001,7 @@ def remember_pending_prompt(
 
 
 def has_pending_prompt(session_id: str) -> bool:
-    """Return whether this agent session is waiting for its Stop answer."""
+    """Return whether this agent session is waiting for its assistant answer."""
     if not session_id:
         return False
     data = _load_json_file(_pending_file(session_id))

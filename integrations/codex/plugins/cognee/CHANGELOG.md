@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0+codex.2026081101
+
+- Windows no longer runs a Cognee Stop command after every response. The next
+  prompt or SessionEnd now captures the completed turn from Codex's transcript,
+  preserving paired prompt/answer memory without the response-end terminal flash.
+
 ## 1.4.0+codex.2026080903
 
 - Live-state routing now covers plural volatile topics and predicate forms such
