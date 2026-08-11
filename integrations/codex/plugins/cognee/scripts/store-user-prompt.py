@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Store prompts and pair the prior completed Codex turn with its answer.
+"""Store prompts and locally queue the prior completed Codex turn.
 
-Runs async on the UserPromptSubmit hook so it doesn't block the
-parallel context-lookup hook. Unlike the Claude integration, Codex keeps
-the prompt pending and writes one paired QAEntry on the next prompt.
+Runs on UserPromptSubmit, but performs local file I/O only. Network delivery is
+owned by a detached drain worker so prompt admission cannot wait on Cognee.
 
 Configuration:
-    Resolves session state via Cognee HTTP endpoints.
+    Resolves session state from local plugin config and the local session map.
 """
 
-import asyncio
 import importlib.util
 import json
 import os
@@ -19,24 +17,24 @@ from pathlib import Path
 
 # Add scripts dir to path for helper imports
 sys.path.insert(0, os.path.dirname(__file__))
+from _proc import background_process_kwargs, hide_console_window, pid_alive
+
+if __name__ == "__main__":
+    hide_console_window()
+
 from _plugin_common import (
     bump_save_counter,
     get_session_key,
     hook_log,
-    load_resolved,
     notify,
     quiet_hook_output,
     read_stdin_utf8,
     remember_pending_prompt,
-    resolve_runtime_mode,
     resolve_session_key_from_payload,
-    resolve_user,
-    server_ready_hint,
     set_session_key,
     touch_activity,
 )
-from _proc import pid_alive
-from config import ensure_cognee_ready, get_dataset, get_session_id, load_config
+from config import get_dataset, get_session_id, load_config
 
 MAX_TEXT = 4000
 _STATE_DIR = Path.home() / ".cognee-plugin" / "codex"
@@ -52,15 +50,8 @@ _STORE_SPEC.loader.exec_module(_STORE_MODULE)
 
 
 def _load_session() -> tuple[str, str, str]:
-    resolved = load_resolved()
-    session_id = resolved.get("session_id", "")
-    dataset = resolved.get("dataset", "")
-    user_id = resolved.get("user_id", "")
-    if not session_id or not dataset:
-        config = load_config()
-        session_id = session_id or get_session_id(config)
-        dataset = dataset or get_dataset(config)
-    return session_id, dataset, user_id
+    config = load_config()
+    return get_session_id(config), get_dataset(config), ""
 
 
 def _watcher_alive() -> bool:
@@ -115,8 +106,8 @@ def _ensure_idle_watcher(session_id: str, dataset: str, user_id: str, config: di
             stdout=log_fh,
             stderr=log_fh,
             env=env,
-            start_new_session=True,
             close_fds=True,
+            **background_process_kwargs(),
         )
         hook_log("idle_watcher_restarted", {"session": session_id, "dataset": dataset})
     except Exception as exc:
@@ -133,32 +124,20 @@ def _prompt_context(payload: dict) -> str:
     return json.dumps({k: v for k, v in context.items() if v}, default=str)
 
 
-async def _store(prompt: str, payload: dict):
+def _store(prompt: str, payload: dict):
     session_id, dataset, user_id = _load_session()
     if not session_id:
         hook_log("no_session_id", {"event": "prompt"})
         return
 
     try:
-        await _STORE_MODULE._store_latest_completed_turn(payload.get("transcript_path"))
+        _STORE_MODULE._queue_latest_completed_turn(payload.get("transcript_path"))
     except Exception as exc:
         hook_log("prior_answer_flush_failed", {"error": str(exc)[:200]})
 
     config = load_config()
     touch_activity()
     _ensure_idle_watcher(session_id, dataset, user_id, config)
-
-    runtime = resolve_runtime_mode()
-    if runtime["mode"] == "local_sdk" and server_ready_hint(runtime.get("base_url", "")):
-        # Keep Cognee initialization parity with Claude so fresh local
-        # databases, identities, and datasets are ready before answer capture.
-        # Skipped while the server is still warming so this hook never blocks;
-        # the prompt is still buffered below and flushed once the server is up.
-        try:
-            await ensure_cognee_ready(config)
-            await resolve_user(user_id)
-        except Exception as exc:
-            hook_log("prompt_prepare_warning", {"error": str(exc)[:200]})
 
     remember_pending_prompt(
         session_id,
@@ -196,7 +175,7 @@ def main():
 
     try:
         with quiet_hook_output("store-user-prompt"):
-            asyncio.run(_store(prompt, payload))
+            _store(prompt, payload)
     except Exception as exc:
         hook_log("prompt_run_exception", {"error": str(exc)[:200]})
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0+codex.2026081110
+
+- Prompt capture is local-first: completed turns are queued to the existing
+  replay buffer and delivered by a detached worker, so a slow backend cannot
+  hold `UserPromptSubmit` open.
+- Prompt recall now resolves its session from the local launch map and has a
+  10-second host timeout instead of allowing a 120-second stall.
+- Windows hook entry points hide only their inherited Cognee console, Windows
+  commands bypass the `python3.cmd` shim through `py -3`, and every detached
+  Cognee worker uses `CREATE_NO_WINDOW`.
+- `Stop` remains absent; the next prompt or the three-second `SessionEnd` hook
+  queues the final transcript turn before detached graph sync.
+
 ## 1.4.0+codex.2026081109
 
 - Removed the global `~/.codex/bin/pwsh.exe` compatibility launcher. Shadowing

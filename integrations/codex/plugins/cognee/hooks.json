@@ -7,6 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/scripts/session-start.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}/scripts/session-start.py\"",
             "timeout": 120,
             "statusMessage": "Initializing Cognee memory..."
           }
@@ -19,13 +20,15 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/scripts/session-context-lookup.py\"",
-            "timeout": 120,
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}/scripts/session-context-lookup.py\"",
+            "timeout": 10,
             "statusMessage": "Searching session memory..."
           },
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/scripts/store-user-prompt.py\"",
-            "timeout": 120,
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}/scripts/store-user-prompt.py\"",
+            "timeout": 3,
             "statusMessage": "Saving user prompt..."
           }
         ]
@@ -37,6 +40,8 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/scripts/sync-session-to-graph.py\" --session-end",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}/scripts/sync-session-to-graph.py\" --session-end",
+            "timeout": 3,
             "statusMessage": "Syncing session memory..."
           }
         ]

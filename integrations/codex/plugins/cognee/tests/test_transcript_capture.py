@@ -53,6 +53,11 @@ def test_capture_without_stop_hook():
             asyncio.run(_STORE._store_latest_completed_turn(transcript))
         save.assert_awaited_once_with(completed)
 
+        queue = mock.Mock(return_value=True)
+        with mock.patch.object(_STORE, "_queue_assistant_stop", queue):
+            assert _STORE._queue_latest_completed_turn(transcript)
+        queue.assert_called_once_with(completed)
+
     with (
         mock.patch.object(_STORE, "_load_session", return_value=("session", "dataset", "user")),
         mock.patch.object(_STORE, "pop_pending_prompt", return_value={}),
@@ -67,8 +72,35 @@ def test_capture_without_stop_hook():
 
     hooks = json.loads((_PLUGIN_DIR / "hooks.json").read_text(encoding="utf-8"))
     assert "Stop" not in hooks["hooks"]
+    prompt_hooks = hooks["hooks"]["UserPromptSubmit"][0]["hooks"]
+    assert [hook["timeout"] for hook in prompt_hooks] == [10, 3]
+    assert all(hook["commandWindows"].startswith("py -3 ") for hook in prompt_hooks)
+
+
+def test_completed_turn_queue_is_local_only():
+    payload = {"turn_id": "turn-1", "last_assistant_message": "answer"}
+    pending = {"prompt": "question", "context": "cwd"}
+    with (
+        mock.patch.object(_STORE, "_load_session_local", return_value=("session", "dataset", "")),
+        mock.patch.object(_STORE, "pop_pending_prompt", return_value=pending),
+        mock.patch.object(_STORE, "append_warmup_entry") as append,
+        mock.patch.object(_STORE, "append_http_bridge_entry") as mirror,
+        mock.patch.object(_STORE, "bump_save_counter"),
+        mock.patch.object(_STORE, "bump_turn_counter"),
+        mock.patch.object(_STORE, "touch_activity"),
+        mock.patch.object(_STORE, "schedule_warmup_drain", return_value=True) as schedule,
+        mock.patch.object(_STORE, "remember_entry_via_http") as network_write,
+    ):
+        assert _STORE._queue_assistant_stop(payload)
+
+    entry = {"type": "qa", "question": "question", "answer": "answer", "context": "cwd"}
+    append.assert_called_once_with("dataset", "session", entry)
+    mirror.assert_called_once_with("dataset", "session", question="question", answer="answer")
+    schedule.assert_called_once_with("dataset", "session")
+    network_write.assert_not_called()
 
 
 if __name__ == "__main__":
     test_capture_without_stop_hook()
+    test_completed_turn_queue_is_local_only()
     print("PASS test_capture_without_stop_hook")

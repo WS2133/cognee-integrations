@@ -26,6 +26,16 @@ from pathlib import Path
 
 # Add scripts dir to path for config import
 sys.path.insert(0, os.path.dirname(__file__))
+from _proc import (
+    background_process_kwargs,
+    find_host_ancestor_windows_optional,
+    hide_console_window,
+)
+from _proc import pid_alive as _pid_alive
+
+if __name__ == "__main__":
+    hide_console_window()
+
 from _plugin_common import (
     _COGNEE_CACHE_DIR,
     _COGNEE_DATA_DIR,
@@ -46,8 +56,6 @@ from _plugin_common import (
     touch_activity,
     write_connection_state,
 )
-from _proc import find_host_ancestor_windows_optional
-from _proc import pid_alive as _pid_alive
 from cognee_statusline_render import render_status_for_host
 from config import (
     _cloud_http_request,
@@ -440,7 +448,11 @@ def _ensure_local_server_running(
         subprocess.Popen(
             [str(_VENV_PYTHON), "-m", "uvicorn", "cognee.api.client:app", "--port", str(port)],
             env=server_env,
-            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            **background_process_kwargs(),
         )
 
         health_deadline = time.monotonic() + health_timeout
@@ -611,8 +623,8 @@ def _spawn_idle_watcher(
 
     Idempotent: if a watcher is already alive (from an earlier session
     on the same machine), we kill it so the new one picks up the new
-    session. Launched with its own session via ``start_new_session=True``
-    so it survives the parent shell closing.
+    session. Launched with platform-specific background flags so it survives
+    the parent shell closing without opening a Windows console.
     """
     if _watcher_alive():
         try:
@@ -660,8 +672,8 @@ def _spawn_idle_watcher(
             stdout=log_fh,
             stderr=log_fh,
             env=env,
-            start_new_session=True,
             close_fds=True,
+            **background_process_kwargs(),
         )
         print("cognee-plugin: idle watcher started", file=sys.stderr)
     except Exception as e:
@@ -802,13 +814,8 @@ def _spawn_exit_watcher(
             "stderr": log_fh,
             "env": env,
             "close_fds": True,
+            **background_process_kwargs(),
         }
-        if sys.platform == "win32":
-            popen_kwargs["creationflags"] = (
-                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-            )
-        else:
-            popen_kwargs["start_new_session"] = True
         subprocess.Popen(
             [sys.executable, str(_EXIT_WATCHER_SCRIPT), json.dumps(bootstrap)],
             **popen_kwargs,
@@ -916,8 +923,8 @@ def _spawn_bootstrap(
             stdout=log_fh,
             stderr=log_fh,
             env=env,
-            start_new_session=True,
             close_fds=True,
+            **background_process_kwargs(),
         )
         hook_log("bootstrap_spawned", {"session_id": session_id})
     except Exception as exc:

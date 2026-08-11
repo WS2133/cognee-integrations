@@ -7,7 +7,7 @@ standing agent guidance, and the graph knowledge built by ``improve()`` flow
 back into Codex's context.
 
 Configuration:
-    Resolves session state via Cognee HTTP endpoints.
+    Resolves the active session from local plugin state before bounded recall.
 """
 
 import asyncio
@@ -19,6 +19,11 @@ import time
 
 # Add scripts dir to path for helper imports
 sys.path.insert(0, os.path.dirname(__file__))
+from _proc import hide_console_window
+
+if __name__ == "__main__":
+    hide_console_window()
+
 from _plugin_common import (
     authed_liveness,
     bounded_dim_mismatch_hint,
@@ -29,8 +34,8 @@ from _plugin_common import (
     notify,
     quiet_hook_output,
     read_and_reset_save_counter,
-    read_stdin_utf8,
     read_connection_state,
+    read_stdin_utf8,
     recall_via_http,
     resolve_runtime_mode,
     resolve_session_key_from_payload,
@@ -140,12 +145,7 @@ def _graph_entry_relevant(prompt: str, entry: dict) -> bool:
 
 
 def _load_session_id() -> str:
-    resolved = load_resolved()
-    session_id = resolved.get("session_id", "")
-    if not session_id:
-        config = load_config()
-        session_id = get_session_id(config)
-    return session_id
+    return get_session_id(load_config())
 
 
 def _load_user_id() -> str:

@@ -23,6 +23,11 @@ from pathlib import Path
 
 # Add scripts dir to path for config/_plugin_common imports
 sys.path.insert(0, os.path.dirname(__file__))
+from _proc import background_process_kwargs, hide_console_window
+
+if __name__ == "__main__":
+    hide_console_window()
+
 from _plugin_common import (
     get_session_key,
     hook_log,
@@ -97,7 +102,8 @@ def _spawn_detached_sync() -> bool:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            close_fds=True,
+            **background_process_kwargs(),
         )
         return True
     except Exception as exc:
@@ -414,9 +420,9 @@ def main():
     # there prevents later idle persistence.
     if is_session_end:
         try:
-            asyncio.run(_STORE_MODULE._store_latest_completed_turn(payload.get("transcript_path")))
+            _STORE_MODULE._queue_latest_completed_turn(payload.get("transcript_path"))
         except Exception as exc:
-            hook_log("session_end_answer_flush_failed", {"error": str(exc)[:200]})
+            hook_log("session_end_answer_queue_failed", {"error": str(exc)[:200]})
         _stop_idle_watcher()
         spawned = _spawn_detached_sync()
         hook_log("sync_deferred_to_shutdown_worker", {"spawned": spawned})

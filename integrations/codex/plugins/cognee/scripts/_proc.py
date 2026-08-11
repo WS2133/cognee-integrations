@@ -9,9 +9,88 @@ needs a native Windows path.
 """
 
 import os
+import subprocess
 import sys
+import time
 
 _IS_WINDOWS = sys.platform == "win32"
+
+
+def hide_console_window() -> bool:
+    """Hide this hook's inherited Windows console window, if it has one.
+
+    Codex currently starts command hooks through the selected console shell.
+    Hiding the console from inside the Cognee hook keeps the workaround scoped
+    to this plugin instead of shadowing PowerShell for every Codex command.
+    """
+    if not _IS_WINDOWS:
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32.GetConsoleWindow.restype = wintypes.HWND
+        kernel32.SetConsoleTitleW.argtypes = (wintypes.LPCWSTR,)
+        user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        user32.GetWindowTextW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
+        user32.ShowWindow.restype = wintypes.BOOL
+        window = kernel32.GetConsoleWindow()
+        hidden = False
+        if window:
+            user32.ShowWindow(window, 0)  # SW_HIDE
+            hidden = True
+
+        # Windows Terminal displays a separate Cascadia host window while
+        # GetConsoleWindow returns only a message-queue handle. Give this
+        # console a unique title, then hide only the exact match.
+        # ponytail: delete this heuristic when Codex creates hook shells with
+        # CREATE_NO_WINDOW itself.
+        marker_title = f"Cognee hook {os.getpid()} {time.time_ns()}"
+        if kernel32.SetConsoleTitleW(marker_title):
+            callback_type = ctypes.WINFUNCTYPE(
+                wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+            )
+
+            @callback_type
+            def _hide_matching_host(hwnd, _lparam):
+                nonlocal hidden
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                class_name = ctypes.create_unicode_buffer(256)
+                window_title = ctypes.create_unicode_buffer(512)
+                user32.GetClassNameW(hwnd, class_name, len(class_name))
+                user32.GetWindowTextW(hwnd, window_title, len(window_title))
+                if class_name.value not in {
+                    "CASCADIA_HOSTING_WINDOW_CLASS",
+                    "ConsoleWindowClass",
+                } or window_title.value != marker_title:
+                    return True
+                user32.ShowWindow(hwnd, 0)
+                hidden = True
+                return True
+
+            # The Terminal host can apply its initial show state after the
+            # console child starts. Re-hide across one bounded 500ms window.
+            for attempt in range(21):
+                user32.EnumWindows(_hide_matching_host, 0)
+                if attempt < 20:
+                    time.sleep(0.025)
+        return hidden
+    except Exception:
+        return False
+
+
+def background_process_kwargs() -> dict:
+    """Platform flags for a background child that must not open a console."""
+    if _IS_WINDOWS:
+        return {
+            "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP
+            | subprocess.CREATE_NO_WINDOW
+        }
+    return {"start_new_session": True}
 
 
 def pid_alive(pid: int) -> bool:

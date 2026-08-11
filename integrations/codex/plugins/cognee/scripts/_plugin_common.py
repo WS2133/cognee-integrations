@@ -2102,13 +2102,8 @@ def schedule_warmup_drain(dataset: str, session_id: str) -> bool:
         "stdout": log_target,
         "stderr": log_target,
         "close_fds": True,
+        **_proc.background_process_kwargs(),
     }
-    if sys.platform == "win32":
-        popen_kwargs["creationflags"] = (
-            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-        )
-    else:
-        popen_kwargs["start_new_session"] = True
 
     try:
         subprocess.Popen(

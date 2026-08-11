@@ -8,7 +8,8 @@ status). Routes a completed assistant message to a ``QAEntry``.
 Runs from the PostToolUse path and transcript capture callers.
 
 Configuration:
-    Resolves session state via Cognee HTTP endpoints.
+    Networked callers resolve session state through Cognee; latency-sensitive
+    transcript callers use the local config and replay buffer.
 """
 
 import asyncio
@@ -38,6 +39,7 @@ from _plugin_common import (
     resolve_session_key_from_payload,
     resolve_user,
     run_session_improve,
+    schedule_warmup_drain,
     server_ready_hint,
     set_session_key,
     touch_activity,
@@ -164,6 +166,38 @@ def _load_session() -> tuple[str, str, str]:
         session_id = session_id or get_session_id(config)
         dataset = dataset or get_dataset(config)
     return session_id, dataset, user_id
+
+
+def _load_session_local() -> tuple[str, str, str]:
+    """Resolve routing from local config/session maps without network I/O."""
+    config = load_config()
+    return get_session_id(config), get_dataset(config), ""
+
+
+def _prepare_paired_qa(payload: dict, session_loader) -> tuple | None:
+    """Pair one completed answer with its locally pending prompt."""
+    msg = str(payload.get("assistant_message") or payload.get("last_assistant_message") or "")
+    if not msg or msg == "null":
+        return None
+
+    msg = _truncate_str(msg, _MAX_ASSISTANT_BYTES)
+    session_id, dataset, user_id = session_loader()
+    if not session_id:
+        hook_log("no_session_id", {"event": "stop"})
+        return None
+
+    pending = pop_pending_prompt(session_id, turn_id=str(payload.get("turn_id") or ""))
+    if not pending.get("prompt"):
+        hook_log("stop_store_skipped_no_pending", {"turn_id": payload.get("turn_id")})
+        return None
+
+    entry = {
+        "type": "qa",
+        "question": pending.get("prompt", ""),
+        "answer": msg,
+        "context": pending.get("context", ""),
+    }
+    return session_id, dataset, user_id, pending, msg, entry
 
 
 async def _store_tool_call(payload: dict) -> None:
@@ -293,34 +327,13 @@ async def _store_tool_call(payload: dict) -> None:
 
 async def _store_assistant_stop(payload: dict) -> None:
     """Write a final assistant message as a QAEntry."""
-    msg = str(payload.get("assistant_message") or payload.get("last_assistant_message") or "")
-    if not msg or msg == "null":
+    prepared = _prepare_paired_qa(payload, _load_session)
+    if prepared is None:
         return
-
-    msg = _truncate_str(msg, _MAX_ASSISTANT_BYTES)
-
-    session_id, dataset, user_id = _load_session()
-    if not session_id:
-        hook_log("no_session_id", {"event": "stop"})
-        return
-
-    pending = pop_pending_prompt(session_id, turn_id=str(payload.get("turn_id") or ""))
-    if not pending.get("prompt"):
-        hook_log("stop_store_skipped_no_pending", {"turn_id": payload.get("turn_id")})
-        return
+    session_id, dataset, user_id, pending, msg, entry = prepared
     config = load_config()
     runtime = resolve_runtime_mode()
     use_http = runtime["mode"] == "http"
-
-    # Codex intentionally differs from Claude here: store one paired
-    # prompt/answer row so Cognee's filesystem session cache does not get
-    # separate question-only and answer-only QA entries for the same turn.
-    entry = {
-        "type": "qa",
-        "question": pending.get("prompt", ""),
-        "answer": msg,
-        "context": pending.get("context", ""),
-    }
 
     if not use_http and not server_ready_hint(runtime.get("base_url", "")):
         # Server still warming: buffer the structured entry for a later
@@ -398,10 +411,48 @@ async def _store_assistant_stop(payload: dict) -> None:
             await _fire_improve_background(dataset, session_id, user, reason=f"turn_{count}")
 
 
+def _queue_assistant_stop(payload: dict) -> bool:
+    """Durably queue a completed turn using local I/O only.
+
+    UserPromptSubmit and SessionEnd are latency-sensitive host boundaries. They
+    write the paired QA entry to the existing replay buffer, then let the
+    no-window drain worker perform all network I/O after the hook returns.
+    """
+    prepared = _prepare_paired_qa(payload, _load_session_local)
+    if prepared is None:
+        return False
+    session_id, dataset, _user_id, pending, msg, entry = prepared
+    append_warmup_entry(dataset, session_id, entry)
+    append_http_bridge_entry(
+        dataset,
+        session_id,
+        question=pending.get("prompt", ""),
+        answer=msg,
+    )
+    bump_save_counter(session_id, "answer")
+    touch_activity()
+    bump_turn_counter(session_id)
+    scheduled = schedule_warmup_drain(dataset, session_id)
+    hook_log(
+        "stop_queued",
+        {
+            "chars": len(msg),
+            "turn_id": payload.get("turn_id"),
+            "drain_scheduled": scheduled,
+        },
+    )
+    return True
+
+
 async def _store_latest_completed_turn(transcript_path) -> None:
     completed = _latest_completed_turn(transcript_path)
     if completed:
         await _store_assistant_stop(completed)
+
+
+def _queue_latest_completed_turn(transcript_path) -> bool:
+    completed = _latest_completed_turn(transcript_path)
+    return bool(completed and _queue_assistant_stop(completed))
 
 
 def main():

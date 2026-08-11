@@ -262,8 +262,9 @@ def test_schedule_warmup_drain_uses_detached_argument_array(tmp_path, monkeypatc
     assert kwargs["stdin"] is subprocess.DEVNULL
     assert kwargs.get("shell", False) is False
     if sys.platform == "win32":
-        expected = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        expected = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         assert kwargs["creationflags"] & expected == expected
+        assert not kwargs["creationflags"] & subprocess.DETACHED_PROCESS
         assert "start_new_session" not in kwargs
     else:
         assert kwargs["start_new_session"] is True

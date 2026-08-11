@@ -19,6 +19,11 @@ from pathlib import Path
 
 # Add scripts dir to path for helper imports
 sys.path.insert(0, os.path.dirname(__file__))
+from _proc import background_process_kwargs, hide_console_window
+
+if __name__ == "__main__":
+    hide_console_window()
+
 from _plugin_common import (
     get_session_key,
     hook_log,
@@ -90,7 +95,8 @@ def _spawn_background_sync(session_id: str, dataset: str, user_id: str) -> None:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            close_fds=True,
+            **background_process_kwargs(),
         )
         hook_log(
             "precompact_sync_deferred",
