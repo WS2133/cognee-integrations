@@ -10,8 +10,24 @@ needs a native Windows path.
 
 import os
 import sys
+from pathlib import Path
 
 _IS_WINDOWS = sys.platform == "win32"
+
+
+def background_python_executable() -> str:
+    """Python interpreter suitable for detached work without a Windows console."""
+    if sys.platform != "win32":
+        return sys.executable
+
+    candidates = [Path(sys.executable).with_name("pythonw.exe")]
+    base_executable = str(getattr(sys, "_base_executable", "") or "")
+    if base_executable:
+        candidates.append(Path(base_executable).with_name("pythonw.exe"))
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return sys.executable
 
 
 def pid_alive(pid: int) -> bool:

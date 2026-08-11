@@ -191,7 +191,8 @@ an exit watcher as fallback if the process exits without firing `SessionEnd`.
 On Windows the fallback binds to the long-lived `codex.exe` ancestor, uses one
 watcher per task launch, and starts both watcher and sync worker without a
 console window. The host PID is preserved across the plugin's venv re-exec so
-the watcher cannot mistake the temporary Python launcher for the task host.
+the watcher cannot mistake the temporary Python launcher for the task host;
+detached workers use the venv's GUI-subsystem `pythonw.exe`.
 
 ## Status visibility
 

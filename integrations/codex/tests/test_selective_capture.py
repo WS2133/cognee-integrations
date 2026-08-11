@@ -298,6 +298,7 @@ def test_windows_exit_watcher_launch_has_no_console(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "_EXIT_WATCHERS_DIR", tmp_path / "exit-watchers")
     monkeypatch.setattr(module, "_find_codex_parent_pid", lambda: 42)
     monkeypatch.setattr(module, "_pid_alive", lambda _pid: False)
+    monkeypatch.setattr(module, "background_python_executable", lambda: "pythonw.exe")
     monkeypatch.setattr(module, "hook_log", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         module.subprocess,
@@ -307,8 +308,9 @@ def test_windows_exit_watcher_launch_has_no_console(tmp_path, monkeypatch):
 
     module._spawn_exit_watcher("session", "memory", session_key="host")
 
-    _args, kwargs = calls[0]
+    args, kwargs = calls[0]
     expected = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    assert args[0] == "pythonw.exe"
     assert kwargs["creationflags"] & expected == expected
     assert "start_new_session" not in kwargs
 
@@ -319,6 +321,7 @@ def test_windows_exit_sync_launch_has_no_console(monkeypatch):
 
     monkeypatch.setattr(module.sys, "platform", "win32")
     monkeypatch.setattr(module, "_log", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "background_python_executable", lambda: "pythonw.exe")
     monkeypatch.setattr(
         module.subprocess,
         "Popen",
@@ -327,7 +330,8 @@ def test_windows_exit_sync_launch_has_no_console(monkeypatch):
 
     module._spawn_sync("session", "memory")
 
-    _args, kwargs = calls[0]
+    args, kwargs = calls[0]
     expected = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    assert args[0] == "pythonw.exe"
     assert kwargs["creationflags"] & expected == expected
     assert "start_new_session" not in kwargs

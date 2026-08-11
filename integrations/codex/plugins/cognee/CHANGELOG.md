@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0+codex.2026081105
+
+- Windows exit watchers and final graph-sync workers now use the plugin venv's
+  GUI-subsystem `pythonw.exe`. This prevents the venv launcher from opening a
+  Windows Terminal/PseudoConsole after the immediate hook process has exited.
+
 ## 1.4.0+codex.2026081104
 
 - Preserve the exact `codex.exe` host PID across the Windows plugin-venv

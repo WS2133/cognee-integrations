@@ -45,7 +45,7 @@ from _plugin_common import (
     touch_activity,
     write_connection_state,
 )
-from _proc import find_host_ancestor_windows_optional
+from _proc import background_python_executable, find_host_ancestor_windows_optional
 from _proc import pid_alive as _pid_alive
 from cognee_statusline_render import render_status_for_host
 from config import (
@@ -809,7 +809,7 @@ def _spawn_exit_watcher(
         else:
             popen_kwargs["start_new_session"] = True
         subprocess.Popen(
-            [sys.executable, str(_EXIT_WATCHER_SCRIPT), json.dumps(bootstrap)],
+            [background_python_executable(), str(_EXIT_WATCHER_SCRIPT), json.dumps(bootstrap)],
             **popen_kwargs,
         )
         hook_log(
