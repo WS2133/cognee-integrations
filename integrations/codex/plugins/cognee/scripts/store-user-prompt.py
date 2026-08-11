@@ -26,6 +26,7 @@ from _plugin_common import (
     load_resolved,
     notify,
     quiet_hook_output,
+    read_stdin_utf8,
     remember_pending_prompt,
     resolve_runtime_mode,
     resolve_session_key_from_payload,
@@ -171,7 +172,7 @@ async def _store(prompt: str, payload: dict):
 
 
 def main():
-    payload_raw = sys.stdin.read()
+    payload_raw = read_stdin_utf8()
     if not payload_raw.strip():
         return
 

@@ -28,6 +28,7 @@ from _plugin_common import (
     hook_log,
     http_api_ready,
     load_resolved,
+    read_stdin_utf8,
     resolve_session_key_from_payload,
     resolve_user,
     resolved_http_endpoint_auth,
@@ -369,7 +370,7 @@ async def _sync(stop_watcher: bool, unregister_on_finish: bool = False, strict: 
 def main():
     detached_final = _DETACHED_ARG in sys.argv
     forced_session_end = _SESSION_END_ARG in sys.argv
-    payload_raw = "" if detached_final else sys.stdin.read()
+    payload_raw = "" if detached_final else read_stdin_utf8()
     payload = {}
     if not detached_final and payload_raw.strip():
         try:

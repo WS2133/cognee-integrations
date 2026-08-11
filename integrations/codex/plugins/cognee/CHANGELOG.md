@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0+codex.2026081108
+
+- Hook payloads are now read from their raw standard-input bytes and decoded as
+  UTF-8 before JSON parsing. This preserves Unicode on Windows without changing
+  the trusted hook commands.
+
 ## 1.4.0+codex.2026081107
 
 - Codex hooks now launch Python in UTF-8 mode, preventing Windows' CP1252

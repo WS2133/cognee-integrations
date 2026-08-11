@@ -1,6 +1,7 @@
 """Regression tests for malformed Unicode in captured Codex context."""
 
 import importlib.util
+import io
 import json
 import pathlib
 import sys
@@ -22,17 +23,12 @@ _STORE_MODULE = importlib.util.module_from_spec(_STORE_SPEC)
 _STORE_SPEC.loader.exec_module(_STORE_MODULE)
 
 
-def test_hook_commands_force_utf8_mode():
-    hooks = json.loads((_PLUGIN_DIR / "hooks.json").read_text(encoding="utf-8"))
-    commands = [
-        hook["command"]
-        for groups in hooks["hooks"].values()
-        for group in groups
-        for hook in group["hooks"]
-    ]
+def test_hook_input_decodes_raw_utf8_bytes():
+    class _Stdin:
+        buffer = io.BytesIO("“quoted” — café".encode("utf-8"))
 
-    assert commands
-    assert all(command.startswith("python3 -X utf8 ") for command in commands)
+    with mock.patch.object(sys, "stdin", _Stdin()):
+        assert _plugin_common.read_stdin_utf8() == "“quoted” — café"
 
 
 def test_captured_text_replaces_lone_surrogate():

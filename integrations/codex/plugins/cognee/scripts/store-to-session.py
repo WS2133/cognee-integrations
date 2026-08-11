@@ -32,6 +32,7 @@ from _plugin_common import (
     notify,
     pop_pending_prompt,
     quiet_hook_output,
+    read_stdin_utf8,
     remember_entry_via_http,
     resolve_runtime_mode,
     resolve_session_key_from_payload,
@@ -404,7 +405,7 @@ async def _store_latest_completed_turn(transcript_path) -> None:
 
 
 def main():
-    payload_raw = sys.stdin.read()
+    payload_raw = read_stdin_utf8()
     if not payload_raw.strip():
         return
 

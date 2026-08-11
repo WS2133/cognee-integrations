@@ -39,6 +39,7 @@ from _plugin_common import (
     ensure_launch_record,
     hook_log,
     quiet_hook_output,
+    read_stdin_utf8,
     resolve_session_key_from_payload,
     server_health_ok,
     set_session_key,
@@ -1355,7 +1356,7 @@ def main():
             hook_log("bootstrap_main_exception", {"error": str(exc)[:200]})
         return
 
-    payload_raw = sys.stdin.read()
+    payload_raw = read_stdin_utf8()
     try:
         payload = json.loads(payload_raw) if payload_raw.strip() else {}
     except json.JSONDecodeError:

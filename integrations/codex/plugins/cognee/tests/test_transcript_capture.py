@@ -70,7 +70,7 @@ def test_capture_fallback_when_stop_hook_is_missed():
     assert stop_hooks == [
         {
             "type": "command",
-            "command": 'python3 -X utf8 "${PLUGIN_ROOT}/scripts/store-to-session.py" --stop',
+            "command": 'python3 "${PLUGIN_ROOT}/scripts/store-to-session.py" --stop',
             "timeout": 120,
             "statusMessage": "Saving assistant response...",
         }

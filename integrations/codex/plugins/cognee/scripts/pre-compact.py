@@ -24,6 +24,7 @@ from _plugin_common import (
     hook_log,
     load_resolved,
     quiet_hook_output,
+    read_stdin_utf8,
     recall_via_http,
     resolve_session_key_from_payload,
     resolve_user,
@@ -278,7 +279,7 @@ def main():
     # Read the PreCompact payload to recover the host session id, which lets the
     # session resolver map back to this launch's Cognee session id (the body is
     # otherwise unused — PreCompact is just a trigger).
-    payload_raw = sys.stdin.read()
+    payload_raw = read_stdin_utf8()
     try:
         payload = json.loads(payload_raw) if payload_raw.strip() else {}
     except json.JSONDecodeError:

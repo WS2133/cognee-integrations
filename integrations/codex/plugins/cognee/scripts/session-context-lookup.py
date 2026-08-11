@@ -29,6 +29,7 @@ from _plugin_common import (
     notify,
     quiet_hook_output,
     read_and_reset_save_counter,
+    read_stdin_utf8,
     read_connection_state,
     recall_via_http,
     resolve_runtime_mode,
@@ -562,7 +563,7 @@ async def _run(prompt: str) -> dict | None:
 
 
 def main():
-    payload_raw = sys.stdin.read()
+    payload_raw = read_stdin_utf8()
     if not payload_raw.strip():
         return
 

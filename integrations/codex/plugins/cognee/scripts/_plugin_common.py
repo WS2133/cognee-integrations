@@ -881,6 +881,13 @@ def _reexec_into_venv() -> None:
 _reexec_into_venv()
 
 
+def read_stdin_utf8() -> str:
+    """Read a Codex hook payload as UTF-8 regardless of the Windows code page."""
+    stream = getattr(sys.stdin, "buffer", sys.stdin)
+    raw = stream.read()
+    return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+
+
 def _verbose_enabled() -> bool:
     return os.environ.get("COGNEE_PLUGIN_VERBOSE", "").lower() in ("1", "true", "yes")
 
