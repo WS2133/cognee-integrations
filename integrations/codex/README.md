@@ -192,7 +192,7 @@ On Windows the fallback binds to the long-lived `codex.exe` ancestor, uses one
 watcher per task launch, and starts both watcher and sync worker without a
 console window. The host PID is preserved across the plugin's venv re-exec so
 the watcher cannot mistake the temporary Python launcher for the task host;
-detached workers use the venv's GUI-subsystem `pythonw.exe`.
+detached workers use Windows' `CREATE_NO_WINDOW` flag through the venv launcher.
 
 ## Status visibility
 

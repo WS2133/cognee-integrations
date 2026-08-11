@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0+codex.2026081106
+
+- Windows exit watchers and final graph-sync workers now use
+  `CREATE_NO_WINDOW` on the plugin venv's `python.exe` launcher. Unlike a
+  detached `pythonw.exe` redirector, this no-console state carries through to
+  the venv's base Python child without opening Windows Terminal.
+
 ## 1.4.0+codex.2026081105
 
 - Windows exit watchers and final graph-sync workers now use the plugin venv's

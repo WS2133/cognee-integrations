@@ -15,7 +15,6 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
-from _proc import background_python_executable
 from _proc import pid_alive as _pid_alive
 
 _PLUGIN_DIR = Path.home() / ".cognee-plugin" / "codex"
@@ -82,12 +81,12 @@ def _spawn_sync(
         }
         if sys.platform == "win32":
             popen_kwargs["creationflags"] = (
-                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
             )
         else:
             popen_kwargs["start_new_session"] = True
         subprocess.Popen(
-            [background_python_executable(), str(_SYNC_SCRIPT), _DETACHED_SYNC_ARG],
+            [sys.executable, str(_SYNC_SCRIPT), _DETACHED_SYNC_ARG],
             **popen_kwargs,
         )
         _log("exit_sync_deferred", session=session_id, dataset=dataset)

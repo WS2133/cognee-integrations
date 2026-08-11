@@ -88,16 +88,6 @@ def test_optional_windows_ancestor_returns_zero_when_host_is_absent(monkeypatch)
     assert _proc.find_host_ancestor_windows_optional(400, "claude", prefer_exact=True) == 0
 
 
-def test_background_python_uses_pythonw_on_windows(tmp_path, monkeypatch):
-    python = tmp_path / "python.exe"
-    pythonw = tmp_path / "pythonw.exe"
-    pythonw.touch()
-    monkeypatch.setattr(_proc.sys, "platform", "win32")
-    monkeypatch.setattr(_proc.sys, "executable", str(python))
-
-    assert _proc.background_python_executable() == str(pythonw)
-
-
 def test_walk_ancestors_returns_start_when_absent():
     table = {400: (300, "python.exe"), 300: (1, "sh.exe")}
     assert _proc._walk_ancestors(table, 400, "codex") == 400
