@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0+codex.2026081107
+
+- Codex hooks now launch Python in UTF-8 mode, preventing Windows' CP1252
+  standard-input decoding from corrupting UTF-8 prompts and answers before
+  their JSON payloads are parsed.
+
 ## 1.4.0+codex.2026081106
 
 - Windows exit watchers and final graph-sync workers now use

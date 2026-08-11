@@ -22,6 +22,19 @@ _STORE_MODULE = importlib.util.module_from_spec(_STORE_SPEC)
 _STORE_SPEC.loader.exec_module(_STORE_MODULE)
 
 
+def test_hook_commands_force_utf8_mode():
+    hooks = json.loads((_PLUGIN_DIR / "hooks.json").read_text(encoding="utf-8"))
+    commands = [
+        hook["command"]
+        for groups in hooks["hooks"].values()
+        for group in groups
+        for hook in group["hooks"]
+    ]
+
+    assert commands
+    assert all(command.startswith("python3 -X utf8 ") for command in commands)
+
+
 def test_captured_text_replaces_lone_surrogate():
     result = _STORE_MODULE._truncate_str("before\udc9dafter", 100)
 
