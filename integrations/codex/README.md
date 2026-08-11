@@ -65,23 +65,6 @@ COGNEE_API_KEY="ck_..."
 '@ | Add-Content "$env:USERPROFILE\.cognee\.env"
 ```
 
-On native Windows, the maintained private installer also installs Cognee's
-owned windowless PowerShell launcher at `~/.codex/bin/pwsh.exe`. Codex probes
-`pwsh` before Windows PowerShell, so command hooks retain normal PowerShell 5.1
-arguments, standard streams, and exit codes without allocating a visible
-console. The launcher accepts only Codex-originated processes and has an owner
-marker beside it; an unrelated or locally modified `pwsh.exe` is never
-overwritten. To reverse only this compatibility layer, run its installed script
-with `-Remove`:
-
-```powershell
-& "$env:USERPROFILE\plugins\cognee\scripts\install-windowless-powershell.ps1" -Remove
-```
-
-Removing the launcher does not disable or uninstall Cognee, but Codex command
-hooks may flash a terminal again until the upstream Windows hook runner starts
-creating its shell process without a console window.
-
 Re-running any of these blocks is safe: when a key appears more than once, the **last value wins**, so pasting again with a new value updates the configuration. Editing the file directly (`nano ~/.cognee/.env`) works too — e.g. to remove a variable such as `COGNEE_BASE_URL` when switching from cloud back to local mode. Changes apply on the next session launch. Plain shell `export`s in the launching terminal still take precedence over `~/.cognee/.env` — useful to override the shared config for one terminal. See [Managing the env file](#managing-the-env-file) for the file format and how to add, change, or remove variables later.
 
 You can also set config in `~/.cognee-plugin/config.json`:
@@ -161,9 +144,13 @@ Data added outside of Claude to the dataset (via SDK or the server for example) 
 | Hook | Behavior |
 |---|---|
 | `SessionStart` | mode select, identity setup, dataset readiness, watcher bootstrap |
-| `UserPromptSubmit` | context lookup + async prompt staging |
-| `Stop` | assistant answer write |
-| `SessionEnd` | trigger detached final sync worker |
+| `UserPromptSubmit` | capture the previous completed turn, context lookup, and current prompt staging |
+| `SessionEnd` | capture the final completed turn and trigger the detached final sync worker |
+
+The plugin intentionally does not register a `Stop` command hook. Codex can
+allocate a visible PowerShell console for command hooks on native Windows, so
+the next `UserPromptSubmit` and `SessionEnd` read the task transcript and save
+any outstanding completed turn instead.
 
 ## Session sync and watchers
 

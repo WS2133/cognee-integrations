@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0+codex.2026081109
+
+- Removed the global `~/.codex/bin/pwsh.exe` compatibility launcher. Shadowing
+  Codex's shell executable affected every shell command, not only Cognee hooks,
+  and could leave command processing stuck.
+- Removed the Codex `Stop` command hook. The next `UserPromptSubmit` or
+  `SessionEnd` captures the outstanding completed turn from the task transcript,
+  avoiding the response-end PowerShell popup while preserving paired capture.
+
 ## 1.4.0+codex.2026081108
 
 - Hook payloads are now read from their raw standard-input bytes and decoded as

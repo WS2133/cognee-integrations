@@ -98,10 +98,6 @@ try {
         throw "Installed plugin version '$installedVersion' does not match '$version'."
     }
 
-    $windowlessInstaller = Join-Path $personalPluginRoot "scripts\install-windowless-powershell.ps1"
-    $windowlessOutput = @(& $windowlessInstaller)
-    $windowlessShell = ($windowlessOutput -join "`n") | ConvertFrom-Json
-
     if (Test-Path -LiteralPath $backupRoot) {
         Remove-Item -LiteralPath $backupRoot -Recurse -Force
     }
@@ -111,7 +107,6 @@ try {
         version = $version
         source = $personalPluginRoot
         cache = $cacheTarget
-        windowless_shell = $windowlessShell
     } | ConvertTo-Json
 }
 finally {

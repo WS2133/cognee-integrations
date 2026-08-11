@@ -1,4 +1,4 @@
-"""Regression checks for immediate and fallback assistant capture."""
+"""Regression check for capture without a Codex Stop hook."""
 
 import asyncio
 import importlib.util
@@ -19,7 +19,7 @@ _STORE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_STORE)
 
 
-def test_capture_fallback_when_stop_hook_is_missed():
+def test_capture_without_stop_hook():
     rows = [
         {
             "type": "event_msg",
@@ -66,17 +66,9 @@ def test_capture_fallback_when_stop_hook_is_missed():
     load_config.assert_not_called()
 
     hooks = json.loads((_PLUGIN_DIR / "hooks.json").read_text(encoding="utf-8"))
-    stop_hooks = hooks["hooks"]["Stop"][0]["hooks"]
-    assert stop_hooks == [
-        {
-            "type": "command",
-            "command": 'python3 "${PLUGIN_ROOT}/scripts/store-to-session.py" --stop',
-            "timeout": 120,
-            "statusMessage": "Saving assistant response...",
-        }
-    ]
+    assert "Stop" not in hooks["hooks"]
 
 
 if __name__ == "__main__":
-    test_capture_fallback_when_stop_hook_is_missed()
-    print("PASS test_capture_fallback_when_stop_hook_is_missed")
+    test_capture_without_stop_hook()
+    print("PASS test_capture_without_stop_hook")
