@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import json
 import pathlib
+import subprocess
 import sys
 import urllib.error
 
@@ -34,6 +35,15 @@ def _load_session_start():
 def _load_idle_watcher():
     spec = importlib.util.spec_from_file_location(
         "cognee_idle_watcher", _SCRIPTS / "idle-watcher.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_exit_watcher():
+    spec = importlib.util.spec_from_file_location(
+        "cognee_exit_watcher", _SCRIPTS / "exit-watcher.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -196,13 +206,15 @@ def test_idle_watcher_does_not_sync_an_unfinished_turn(monkeypatch):
     assert improve_calls == []
 
 
-def test_windows_session_start_uses_official_session_end(monkeypatch):
+def test_windows_session_start_uses_exit_watcher_fallback(monkeypatch):
     module = _load_session_start()
     exit_watchers = []
 
     monkeypatch.setattr(module.sys, "platform", "win32")
     monkeypatch.setattr(module, "load_config", lambda: {"base_url": "http://example.invalid"})
-    monkeypatch.setattr(module, "resolve_session_key_from_payload", lambda _payload: ("host", "test"))
+    monkeypatch.setattr(
+        module, "resolve_session_key_from_payload", lambda _payload: ("host", "test")
+    )
     monkeypatch.setattr(module, "set_session_key", lambda key: key)
     monkeypatch.setattr(module, "ensure_launch_record", lambda *_args: ("session", "connection"))
     monkeypatch.setattr(module, "get_dataset", lambda _config: "memory")
@@ -227,4 +239,62 @@ def test_windows_session_start_uses_official_session_end(monkeypatch):
 
     asyncio.run(module._start({"session_id": "host"}))
 
-    assert exit_watchers == []
+    assert exit_watchers == [True]
+
+
+def test_exit_watcher_pidfile_is_scoped_per_launch():
+    module = _load_session_start()
+
+    first = module._exit_watcher_pidfile(42, "session-a", "host-a")
+    same = module._exit_watcher_pidfile(42, "session-a", "host-a")
+    second = module._exit_watcher_pidfile(42, "session-b", "host-b")
+
+    assert first == same
+    assert first != second
+    assert first.parent == module._EXIT_WATCHERS_DIR
+    assert first.name.startswith("42-")
+    assert first.suffix == ".pid"
+
+
+def test_windows_exit_watcher_launch_has_no_console(tmp_path, monkeypatch):
+    module = _load_session_start()
+    calls = []
+
+    monkeypatch.setattr(module.sys, "platform", "win32")
+    monkeypatch.setattr(module, "_STATE_DIR", tmp_path)
+    monkeypatch.setattr(module, "_EXIT_WATCHERS_DIR", tmp_path / "exit-watchers")
+    monkeypatch.setattr(module, "_find_codex_parent_pid", lambda: 42)
+    monkeypatch.setattr(module, "_pid_alive", lambda _pid: False)
+    monkeypatch.setattr(module, "hook_log", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda args, **kwargs: calls.append((args, kwargs)) or object(),
+    )
+
+    module._spawn_exit_watcher("session", "memory", session_key="host")
+
+    _args, kwargs = calls[0]
+    expected = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    assert kwargs["creationflags"] & expected == expected
+    assert "start_new_session" not in kwargs
+
+
+def test_windows_exit_sync_launch_has_no_console(monkeypatch):
+    module = _load_exit_watcher()
+    calls = []
+
+    monkeypatch.setattr(module.sys, "platform", "win32")
+    monkeypatch.setattr(module, "_log", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda args, **kwargs: calls.append((args, kwargs)) or object(),
+    )
+
+    module._spawn_sync("session", "memory")
+
+    _args, kwargs = calls[0]
+    expected = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    assert kwargs["creationflags"] & expected == expected
+    assert "start_new_session" not in kwargs

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0+codex.2026081103
+
+- Restored the existing process-exit graph-sync fallback on native Windows for
+  Codex runtimes that omit `SessionEnd` during normal task teardown. The watcher
+  now follows the long-lived `codex.exe` ancestor instead of a short-lived
+  `codex-*` hook helper and uses one pidfile per task launch.
+- Windows exit watchers and their final sync workers launch as detached,
+  no-console processes, preserving the windowless hook boundary through final
+  graph synchronization.
+
 ## 1.4.0+codex.2026081102
 
 - Native Windows installs now include an owned, reversible GUI-subsystem

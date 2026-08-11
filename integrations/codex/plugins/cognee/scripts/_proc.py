@@ -76,15 +76,23 @@ def _pid_alive_windows(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
-def find_host_ancestor_windows(start_pid: int, host_stem: str) -> int:
+def find_host_ancestor_windows(
+    start_pid: int, host_stem: str, *, prefer_exact: bool = False
+) -> int:
     """Nearest ancestor of ``start_pid`` whose executable base name is ``host_stem``
     (e.g. "claude" / "codex"), found by walking the Windows process tree.
 
     Returns ``start_pid`` unchanged when the process table cannot be read or no
     matching ancestor is found, so the caller keeps its existing fallback. Used
     where POSIX shells out to ``ps``, which does not exist on Windows.
+
+    ``prefer_exact`` keeps walking past helpers such as
+    ``codex-command-runner.exe`` when the real ``codex.exe`` host is higher in
+    the same ancestry chain.
     """
-    return _walk_ancestors(_process_table_windows(), start_pid, host_stem)
+    return _walk_ancestors(
+        _process_table_windows(), start_pid, host_stem, prefer_exact=prefer_exact
+    )
 
 
 def _matches_host_exe(exe: str, host_stem: str) -> bool:
@@ -93,16 +101,27 @@ def _matches_host_exe(exe: str, host_stem: str) -> bool:
     return base == stem or base.startswith(stem + "-")
 
 
-def _walk_ancestors(table: dict[int, tuple[int, str]], start_pid: int, host_stem: str) -> int:
+def _walk_ancestors(
+    table: dict[int, tuple[int, str]],
+    start_pid: int,
+    host_stem: str,
+    *,
+    prefer_exact: bool = False,
+) -> int:
     pid = start_pid
     seen: set[int] = set()
+    helper_match = 0
+    exact_stem = host_stem.casefold()
     while pid > 1 and pid not in seen:
         seen.add(pid)
         ppid, exe = table.get(pid, (0, ""))
         if exe and _matches_host_exe(exe, host_stem):
-            return pid
+            if not prefer_exact or os.path.splitext(exe)[0].casefold() == exact_stem:
+                return pid
+            if not helper_match:
+                helper_match = pid
         pid = ppid
-    return start_pid
+    return helper_match or start_pid
 
 
 def _process_table_windows() -> dict[int, tuple[int, str]]:

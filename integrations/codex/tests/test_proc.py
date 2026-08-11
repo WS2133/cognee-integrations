@@ -62,6 +62,19 @@ def test_walk_ancestors_finds_host():
     assert _proc._walk_ancestors(table, 400, "codex") == 200
 
 
+def test_walk_ancestors_can_prefer_exact_host_over_nearer_helper():
+    # 400 (python hook) -> 300 (codex-command-runner.exe) -> 200 (codex.exe).
+    # Exit watchers must follow the long-lived host, not the short-lived helper.
+    table = {
+        400: (300, "python.exe"),
+        300: (200, "codex-command-runner.exe"),
+        200: (100, "codex.exe"),
+        100: (1, "explorer.exe"),
+    }
+    assert _proc._walk_ancestors(table, 400, "codex") == 300
+    assert _proc._walk_ancestors(table, 400, "codex", prefer_exact=True) == 200
+
+
 def test_walk_ancestors_returns_start_when_absent():
     table = {400: (300, "python.exe"), 300: (1, "sh.exe")}
     assert _proc._walk_ancestors(table, 400, "codex") == 400

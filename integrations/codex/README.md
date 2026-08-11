@@ -186,7 +186,11 @@ When a backend becomes ready after warmup, the first prompt schedules a detached
 | `COGNEE_IMPROVE_BUSY_DEADLINE` | `600` | How long to wait for a concurrent improve's session lock before giving up |
 | `COGNEE_IMPROVE_BUSY_RETRY_INTERVAL` | `15` | Seconds between re-submits while the session lock is held |
 
-Final sync on session end is triggered by the `SessionEnd` detached worker, with an exit watcher as fallback if the process exits without firing `SessionEnd`.
+Final sync on session end is triggered by the `SessionEnd` detached worker, with
+an exit watcher as fallback if the process exits without firing `SessionEnd`.
+On Windows the fallback binds to the long-lived `codex.exe` ancestor, uses one
+watcher per task launch, and starts both watcher and sync worker without a
+console window.
 
 ## Status visibility
 

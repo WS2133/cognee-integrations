@@ -10,6 +10,7 @@ Runs on the SessionStart hook. Responsibilities:
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -667,10 +668,10 @@ def _spawn_idle_watcher(
 
 
 def _find_codex_parent_pid() -> int:
-    """Find the nearest live Codex ancestor, skipping hook shells."""
+    """Find the long-lived Codex host ancestor, skipping hook helpers."""
     fallback = os.getppid()
     if sys.platform == "win32":
-        return find_host_ancestor_windows(fallback, "codex")
+        return find_host_ancestor_windows(fallback, "codex", prefer_exact=True)
     try:
         raw = subprocess.check_output(
             ["ps", "-axo", "pid=,ppid=,command="],
@@ -710,6 +711,15 @@ def _find_codex_parent_pid() -> int:
     return fallback
 
 
+def _exit_watcher_pidfile(
+    parent_pid: int, session_id: str, session_key: str = "", agent_session_name: str = ""
+) -> Path:
+    """Return a stable watcher pidfile unique to one Codex task launch."""
+    identity = "\0".join((session_id, session_key, agent_session_name))
+    token = hashlib.sha256(identity.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return _EXIT_WATCHERS_DIR / f"{parent_pid}-{token}.pid"
+
+
 def _spawn_exit_watcher(
     session_id: str,
     dataset: str,
@@ -735,7 +745,9 @@ def _spawn_exit_watcher(
         hook_log("exit_watcher_prune_failed", {"error": str(exc)[:200]})
 
     parent_pid = _find_codex_parent_pid()
-    watcher_pidfile = _EXIT_WATCHERS_DIR / f"{parent_pid}.pid"
+    watcher_pidfile = _exit_watcher_pidfile(
+        parent_pid, session_id, session_key, agent_session_name
+    )
     try:
         if watcher_pidfile.exists():
             existing = int(watcher_pidfile.read_text(encoding="utf-8").strip())
@@ -771,14 +783,22 @@ def _spawn_exit_watcher(
         env = os.environ.copy()
         if session_key:
             env["COGNEE_SESSION_KEY"] = session_key
+        popen_kwargs = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": log_fh,
+            "stderr": log_fh,
+            "env": env,
+            "close_fds": True,
+        }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
         subprocess.Popen(
             [sys.executable, str(_EXIT_WATCHER_SCRIPT), json.dumps(bootstrap)],
-            stdin=subprocess.DEVNULL,
-            stdout=log_fh,
-            stderr=log_fh,
-            env=env,
-            start_new_session=True,
-            close_fds=True,
+            **popen_kwargs,
         )
         hook_log(
             "exit_watcher_started",
@@ -1241,17 +1261,17 @@ async def _start(payload: dict | None = None) -> dict:
     ):
         _spawn_idle_watcher(session_id, dataset, user_id, config, session_key)
 
-    # Codex Desktop's Windows hook host is short-lived; watching it unregisters
-    # a still-open task. The native SessionEnd hook and idle sync own shutdown.
-    if sys.platform != "win32":
-        _spawn_exit_watcher(
-            session_id,
-            dataset,
-            session_key=session_key,
-            agent_session_name=agent_session_name,
-            api_key=agent_api_key,
-            service_url=str(config.get("base_url", "") or ""),
-        )
+    # SessionEnd remains the primary shutdown path. The host watcher covers
+    # Codex runtimes that omit SessionEnd on normal teardown; on Windows it
+    # follows the exact codex.exe ancestor rather than a short-lived helper.
+    _spawn_exit_watcher(
+        session_id,
+        dataset,
+        session_key=session_key,
+        agent_session_name=agent_session_name,
+        api_key=agent_api_key,
+        service_url=str(config.get("base_url", "") or ""),
+    )
 
     mode = "cloud" if config.get("base_url") else "local"
     print(
