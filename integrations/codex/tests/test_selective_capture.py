@@ -52,7 +52,11 @@ def test_remote_stop_does_not_buffer_when_readiness_marker_is_stale(monkeypatch)
         lambda: {"mode": "http", "base_url": "http://example.invalid"},
     )
     monkeypatch.setattr(module, "server_ready_hint", lambda _url: False)
-    monkeypatch.setattr(module, "pop_pending_prompt", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        module,
+        "pop_pending_prompt",
+        lambda *_args, **_kwargs: {"prompt": "question", "context": "context"},
+    )
     monkeypatch.setattr(
         module,
         "remember_entry_via_http",
@@ -141,7 +145,11 @@ def test_remote_stop_does_not_buffer_nonretryable_write_failure(monkeypatch):
         "resolve_runtime_mode",
         lambda: {"mode": "http", "base_url": "http://example.invalid"},
     )
-    monkeypatch.setattr(module, "pop_pending_prompt", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        module,
+        "pop_pending_prompt",
+        lambda *_args, **_kwargs: {"prompt": "question", "context": "context"},
+    )
 
     def fail_store(*_args, **_kwargs):
         raise urllib.error.HTTPError("http://example.invalid", 401, "Unauthorized", {}, None)

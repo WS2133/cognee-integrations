@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0+codex.2026081102
+
+- Native Windows installs now include an owned, reversible GUI-subsystem
+  `pwsh.exe` launcher in `~/.codex/bin`. Codex selects it for command hooks and
+  it starts Windows PowerShell with no console window while preserving standard
+  streams, arguments, and exit codes. The launcher refuses non-Codex callers.
+- Restored the Stop hook for immediate assistant-answer capture. The transcript
+  readback added in the previous release remains as a missed-hook fallback, so
+  SessionEnd still closes any outstanding turn before graph sync.
+
 ## 1.4.0+codex.2026081101
 
 - Windows no longer runs a Cognee Stop command after every response. The next
