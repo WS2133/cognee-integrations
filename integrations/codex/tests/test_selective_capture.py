@@ -242,6 +242,39 @@ def test_windows_session_start_uses_exit_watcher_fallback(monkeypatch):
     assert exit_watchers == [True]
 
 
+def test_windows_reexec_preserves_codex_host_pid(monkeypatch):
+    import _plugin_common as common
+    import _proc
+
+    monkeypatch.setattr(common.sys, "platform", "win32")
+    monkeypatch.delenv("COGNEE_CODEX_HOST_PID", raising=False)
+    monkeypatch.setattr(common.os, "getppid", lambda: 400)
+    monkeypatch.setattr(
+        _proc,
+        "find_host_ancestor_windows_optional",
+        lambda start_pid, host_stem, **kwargs: 200,
+    )
+
+    common._preserve_windows_codex_host_pid()
+
+    assert common.os.environ["COGNEE_CODEX_HOST_PID"] == "200"
+
+
+def test_windows_session_start_uses_preserved_live_codex_host(monkeypatch):
+    module = _load_session_start()
+
+    monkeypatch.setattr(module.sys, "platform", "win32")
+    monkeypatch.setenv("COGNEE_CODEX_HOST_PID", "4242")
+    monkeypatch.setattr(module, "_pid_alive", lambda pid: pid == 4242)
+    monkeypatch.setattr(
+        module,
+        "find_host_ancestor_windows_optional",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected fallback")),
+    )
+
+    assert module._find_codex_parent_pid() == 4242
+
+
 def test_exit_watcher_pidfile_is_scoped_per_launch():
     module = _load_session_start()
 

@@ -75,6 +75,19 @@ def test_walk_ancestors_can_prefer_exact_host_over_nearer_helper():
     assert _proc._walk_ancestors(table, 400, "codex", prefer_exact=True) == 200
 
 
+def test_optional_windows_ancestor_returns_zero_when_host_is_absent(monkeypatch):
+    table = {
+        400: (300, "python.exe"),
+        300: (200, "codex-command-runner.exe"),
+        200: (100, "codex.exe"),
+        100: (1, "explorer.exe"),
+    }
+    monkeypatch.setattr(_proc, "_process_table_windows", lambda: table)
+
+    assert _proc.find_host_ancestor_windows_optional(400, "codex", prefer_exact=True) == 200
+    assert _proc.find_host_ancestor_windows_optional(400, "claude", prefer_exact=True) == 0
+
+
 def test_walk_ancestors_returns_start_when_absent():
     table = {400: (300, "python.exe"), 300: (1, "sh.exe")}
     assert _proc._walk_ancestors(table, 400, "codex") == 400

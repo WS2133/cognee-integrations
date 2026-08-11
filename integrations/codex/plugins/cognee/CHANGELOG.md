@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0+codex.2026081104
+
+- Preserve the exact `codex.exe` host PID across the Windows plugin-venv
+  re-exec. If no live Codex ancestor can be proven, finalization now fails
+  closed instead of attaching the exit watcher to a short-lived Python parent.
+
 ## 1.4.0+codex.2026081103
 
 - Restored the existing process-exit graph-sync fallback on native Windows for

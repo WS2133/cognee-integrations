@@ -90,7 +90,19 @@ def find_host_ancestor_windows(
     ``codex-command-runner.exe`` when the real ``codex.exe`` host is higher in
     the same ancestry chain.
     """
-    return _walk_ancestors(
+    return (
+        find_host_ancestor_windows_optional(
+            start_pid, host_stem, prefer_exact=prefer_exact
+        )
+        or start_pid
+    )
+
+
+def find_host_ancestor_windows_optional(
+    start_pid: int, host_stem: str, *, prefer_exact: bool = False
+) -> int:
+    """Matching Windows host ancestor, or ``0`` when none can be proven."""
+    return _find_matching_ancestor(
         _process_table_windows(), start_pid, host_stem, prefer_exact=prefer_exact
     )
 
@@ -102,6 +114,19 @@ def _matches_host_exe(exe: str, host_stem: str) -> bool:
 
 
 def _walk_ancestors(
+    table: dict[int, tuple[int, str]],
+    start_pid: int,
+    host_stem: str,
+    *,
+    prefer_exact: bool = False,
+) -> int:
+    return (
+        _find_matching_ancestor(table, start_pid, host_stem, prefer_exact=prefer_exact)
+        or start_pid
+    )
+
+
+def _find_matching_ancestor(
     table: dict[int, tuple[int, str]],
     start_pid: int,
     host_stem: str,
@@ -121,7 +146,7 @@ def _walk_ancestors(
             if not helper_match:
                 helper_match = pid
         pid = ppid
-    return helper_match or start_pid
+    return helper_match
 
 
 def _process_table_windows() -> dict[int, tuple[int, str]]:

@@ -45,7 +45,7 @@ from _plugin_common import (
     touch_activity,
     write_connection_state,
 )
-from _proc import find_host_ancestor_windows
+from _proc import find_host_ancestor_windows_optional
 from _proc import pid_alive as _pid_alive
 from cognee_statusline_render import render_status_for_host
 from config import (
@@ -671,7 +671,13 @@ def _find_codex_parent_pid() -> int:
     """Find the long-lived Codex host ancestor, skipping hook helpers."""
     fallback = os.getppid()
     if sys.platform == "win32":
-        return find_host_ancestor_windows(fallback, "codex", prefer_exact=True)
+        try:
+            preserved = int(os.environ.get("COGNEE_CODEX_HOST_PID", "0") or 0)
+        except ValueError:
+            preserved = 0
+        if preserved > 1 and _pid_alive(preserved):
+            return preserved
+        return find_host_ancestor_windows_optional(fallback, "codex", prefer_exact=True)
     try:
         raw = subprocess.check_output(
             ["ps", "-axo", "pid=,ppid=,command="],
@@ -745,6 +751,12 @@ def _spawn_exit_watcher(
         hook_log("exit_watcher_prune_failed", {"error": str(exc)[:200]})
 
     parent_pid = _find_codex_parent_pid()
+    if parent_pid <= 1:
+        hook_log(
+            "exit_watcher_host_missing",
+            {"session_id": session_id, "dataset": dataset},
+        )
+        return
     watcher_pidfile = _exit_watcher_pidfile(
         parent_pid, session_id, session_key, agent_session_name
     )

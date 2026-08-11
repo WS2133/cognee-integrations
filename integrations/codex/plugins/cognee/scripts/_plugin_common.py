@@ -828,6 +828,22 @@ def _https_context() -> ssl.SSLContext:
     return ctx
 
 
+def _preserve_windows_codex_host_pid() -> None:
+    """Carry the real Codex host PID across Windows' spawn-based ``execv``."""
+    if sys.platform != "win32" or os.environ.get("COGNEE_CODEX_HOST_PID"):
+        return
+    try:
+        from _proc import find_host_ancestor_windows_optional
+
+        host_pid = find_host_ancestor_windows_optional(
+            os.getppid(), "codex", prefer_exact=True
+        )
+        if host_pid > 1:
+            os.environ["COGNEE_CODEX_HOST_PID"] = str(host_pid)
+    except Exception as exc:
+        hook_log("codex_host_pid_preserve_failed", {"error": str(exc)[:200]})
+
+
 def _reexec_into_venv() -> None:
     """Re-exec the current hook under the shared plugin-owned venv interpreter.
 
@@ -850,6 +866,7 @@ def _reexec_into_venv() -> None:
             return  # the host python3 already *is* the venv interpreter
     except OSError:
         pass
+    _preserve_windows_codex_host_pid()
     try:
         # execv inherits os.environ (incl. the loop guard just set above).
         os.execv(str(vpy), [str(vpy), *sys.argv])
